@@ -1,47 +1,68 @@
-- YOPO 模型机体系确实是 `x前、y左、z上`，即 FLU；训练源码称其为 NWU：[yopo_dataset.py (line 89)](/C:/Users/10416/Documents/Codex/2026-07-16/w-m/work/YOPO-phase2/YOPO/policy/yopo_dataset.py:89)。
-- SO3 内部也是 z-up，悬停补偿为 `+mg`：[SO3Control.cpp (line 70)](/C:/Users/10416/Documents/Codex/2026-07-16/w-m/work/YOPO-phase2/Controller/src/so3_control/src/SO3Control.cpp:70)。
-- cuVSLAM ROS 输出已经转换成 `x前、y左、z上`：[cuvslam_ros_conversion.hpp (line 36)](/C:/Users/10416/Documents/Codex/2026-07-16/w-m/work/isaac_ros_visual_slam-v3.2-15/isaac_ros_visual_slam/include/isaac_ros_visual_slam/impl/cuvslam_ros_conversion.hpp:36)。
-- 但是当前 cuVSLAM 输出的参考点是 `camera_link`，不是飞机质心。
-- cuVSLAM 的 twist 是通过相邻 pose 的局部相对变换计算的，属于 child/base frame；YOPO 当前却把它当世界系速度使用：[test_yopo_ros.py (line 213)](/C:/Users/10416/Documents/Codex/2026-07-16/w-m/work/YOPO-phase2/YOPO/test_yopo_ros.py:213)。
-- 作者旧控制器在发送 MAVROS 前手工将四元数 y、z 取反：[mavros_interface.h (line 157)](/C:/Users/10416/Documents/Codex/2026-07-16/w-m/work/YOPO-phase2/Controller/src/so3_control/include/so3_control/mavros_interface.h:157)。
-- 标准 MAVROS 2.14 已经自动完成 ENU/FLU → NED/FRD。因此我们不能保留旧的 y、z 手工取反，否则会二次转换。
-- `plan_from_reference=true` 当前 ROS2 配置已经设置。它只改变重规划起点，并不解决坐标转换问题。
+---
 
-**最终坐标合同**
+### 总体目标
+对齐 YOPO 模型、SO3 控制器、cuVSLAM、MAVROS 以及 PX4 飞控之间的坐标系，消除历史代码中手工绕过的错误，统一规范状态输出。
 
-| Frame          | 最终定义                                         |
-| -------------- | ------------------------------------------------ |
-| `map`          | ENU，x东、y北、z上；YOPO目标和 PX4 ROS侧对齐世界 |
-| `odom`         | cuVSLAM连续局部世界，不跳变；初始 yaw 可能任意   |
-| `base_link`    | FLU，x前、y左、z上；原点选飞机质心/控制参考点    |
-| `fcu_imu`      | 飞控IMU中心，ROS表达为FLU                        |
-| `camera_link`  | D435机身坐标，FLU                                |
-| optical frames | x右、y下、z前                                    |
-| `base_frd`     | PX4机体：`(x,-y,-z)`，只在MAVROS边界出现         |
-| `map_ned`      | PX4世界：`(y,x,-z)`，只在MAVROS边界出现          |
+### 一、 核心坐标系规约（Frame Conventions）
 
-需要由状态适配器计算：
+| 坐标系名称 | 标准定义与约束 |
+| :--- | :--- |
+| **`map` (世界系)** | **ENU** (x东、y北、z上)。YOPO 的规划目标以及 PX4 的 ROS 侧均以此世界系为对齐标准。 |
+| **`odom` (里程计)** | cuVSLAM 输出的连续局部世界系。**特征**：初始偏航可能任意，但在运行期间不会发生跳变。 |
+| **`base_link` (机体)** | **FLU** (x前、y左、z上)。**原点**：飞机质心，作为控制的参考点。 |
+| **`fcu_imu`** | 飞控 IMU 中心，ROS 表达呈 **FLU**。 |
+| **`camera_link`** | D435 相机机身坐标，呈 **FLU**（按 ROS 标准定义）。 |
+| **`optical frames`** | 视觉/相机标准输出：**x右、y下、z前**（注意与机身坐标的转换差异）。 |
+| **`base_frd` (边界)** | **仅存在于 MAVROS 输出边界**：PX4 内部机体系，等价于 `(x, -y, -z)`。 |
+| **`map_ned` (边界)** | **仅存在于 MAVROS 输出边界**：PX4 内部世界系，等价于 `(y, x, -z)`。 |
 
-```
-T_odom_base = T_odom_camera * inverse(T_base_camera)
-T_map_base  = T_map_odom * T_odom_base
-```
+---
 
-最终接口分为：
+### 二、 关键约束、问题风险与修正（Bug Fixes）
 
-```
-/localization/odometry
-  pose:  odom -> base_link
-  twist: base_link
-  标准 nav_msgs/Odometry
+1. **模型机体统一**：
+   YOPO 模型与 SO3 控制器内部统一采用 **FLU**（z轴向上，悬停补偿为 `+mg`）。
+2. **⚠️ 历史 Hack 禁止复现**：
+   **严禁**在发送给 MAVROS 之前手工对四元数的 y、z 进行取反。因为**标准 MAVROS 2.14 版本已经提供了自动转换功能**（将 ROS 端的 ENU/FLU 自动转化为 PX4 所需的 NED/FRD）。若继续保留该手工操作，将导致**双重转换**，直接造成姿态解算错误。
+3. **💥 速度坐标系错配纠正**：
+   cuVSLAM 输出的 `twist`（线速度/角速度）是通过连续帧间 `camera_link` 的**局部相对变换**计算得出的，其物理含义属于 `child frame` 坐标系（即机身系）。而当前 YOPO 将其直接当作**世界系速度**使用，这是严重的逻辑错误，必须通过状态适配器予以纠正。
+4. **规划起点配置**：
+   `plan_from_reference=true` 当前已正确配置。但需明确，此参数仅控制重规划时的**起点选取**，并不解决上述任何坐标系转换问题。
 
-/state/odom
-  pose: map -> base_link
-  当前YOPO兼容阶段需要世界系线速度
+---
 
-/mavros/odometry/out
-  pose: map -> base_link，ROS ENU/FLU
-  twist: base_link
-  交给标准MAVROS自动转换为NED/FRD
-```
+### 三、 状态适配器坐标变换逻辑
 
+由于 cuVSLAM 的输出帧是 `camera_link`，而控制接口需要统一到 `base_link`（飞机质心），适配器必须执行如下变换计算：
+
+1. **基于相机输出的机体姿态推导**（求从 `odom` 到 `base_link` 的变换）：
+   \[
+ T_{odom\_base} = T_{odom\_camera} \times (T_{base\_camera})^{-1} 
+\]
+   （其中 \(T_{base\_camera}\) 为相机在机体坐标系下的固定外参）
+
+2. **对齐到世界系的机体姿态推导**（求从 `map` 到 `base_link` 的变换）：
+   \[
+ T_{map\_base} = T_{map\_odom} \times T_{odom\_base} 
+\]
+   （其中 \(T_{map\_odom}\) 为里程计坐标系在世界系下的位姿）
+
+---
+
+### 四、 最终 ROS 接口输出规范
+
+按照以上规约与变换逻辑，状态适配器的最终输出接口分为以下三个独立标准：
+
+1. **`/localization/odometry` (标准 `nav_msgs/Odometry`)**
+   *   **Pose（位姿）**：坐标系对应 `odom` → `base_link`。
+   *   **Twist（速度）**：坐标系对应 `base_link`（机体系下的局部速度）。
+   *   *作用*：供机器人或视觉定位使用。
+
+2. **`/state/odom` (兼容 YOPO 的旧接口)**
+   *   **Pose（位姿）**：坐标系对应 `map` → `base_link`。
+   *   **Twist（速度）**：**必须在此处转换为世界系线速度**，以满足 YOPO 对旧有接口的读取依赖（直至 YOPO 内部修正在世界系使用该速度的错误逻辑）。
+
+3. **`/mavros/odometry/out` (发送给飞控的接口)**
+   *   **Pose（位姿）**：坐标系对应 `map` → `base_link`，严格使用 ROS 标准 **ENU/FLU** 表达。
+   *   **Twist（速度）**：坐标系对应 `base_link`。
+   *   *作用*：直接发送给 MAVROS 节点。由 MAVROS 2.14 内部自动完成 **ENU/FLU** → **NED/FRD** 的最终底层转换并推送给 PX4 飞控。
