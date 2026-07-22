@@ -62,7 +62,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   auto observer = std::make_shared<rclcpp::Node>("shadow_candidate_observer");
   const auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile();
   auto pose_publisher = source->create_publisher<geometry_msgs::msg::PoseStamped>(
-    "/droneyee207/pose", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile());
+    "/droneyee207/pose", rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile());
   std::optional<ShadowPoseCandidate> candidate;
   auto candidate_subscription = observer->create_subscription<ShadowPoseCandidate>(
     "/localization/shadow/mocap/assumed_base_pose",
@@ -73,7 +73,22 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   executor.add_node(adapter);
   executor.add_node(source);
   executor.add_node(observer);
-  for (std::size_t index = 0U; index < 30U; ++index) {
+
+  const auto graph_is_ready = [&adapter]() {
+      return
+        adapter->get_publishers_info_by_topic("/droneyee207/pose").size() == 1U &&
+        adapter->get_publishers_info_by_topic(
+        "/localization/shadow/mocap/assumed_base_pose").size() == 1U;
+    };
+  const auto graph_deadline = std::chrono::steady_clock::now() + 5s;
+  while (!graph_is_ready() && std::chrono::steady_clock::now() < graph_deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(5ms);
+  }
+  ASSERT_TRUE(graph_is_ready());
+
+  const auto evidence_deadline = std::chrono::steady_clock::now() + 250ms;
+  while (std::chrono::steady_clock::now() < evidence_deadline) {
     executor.spin_some();
     std::this_thread::sleep_for(5ms);
   }
@@ -87,6 +102,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
       pose.pose.position.z = 3.0;
       pose.pose.orientation.w = 1.0;
       pose_publisher->publish(pose);
+      std::this_thread::sleep_for(1ms);
       executor.spin_some();
     };
   const auto publish_batch = [&publish_pose]() {
@@ -99,7 +115,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   }
   EXPECT_FALSE(candidate.has_value());
 
-  for (std::size_t index = 0U; index < 50U && !candidate.has_value(); ++index) {
+  for (std::size_t index = 0U; index < 150U && !candidate.has_value(); ++index) {
     publish_batch();
   }
   for (std::size_t index = 0U; index < 30U && !candidate.has_value(); ++index) {

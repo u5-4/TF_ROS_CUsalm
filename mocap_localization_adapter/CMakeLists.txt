@@ -92,6 +92,9 @@ if(BUILD_TESTING)
       localization_adapter_interfaces
       rclcpp
     )
+    set_tests_properties(test_live_shadow_pipeline PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=229;ROS_LOCALHOST_ONLY=1"
+    )
   endif()
 
   ament_add_gtest(test_output_authority test/test_output_authority.cpp)
@@ -101,6 +104,9 @@ if(BUILD_TESTING)
       geometry_msgs
       localization_adapter_interfaces
       rclcpp
+    )
+    set_tests_properties(test_output_authority PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=230;ROS_LOCALHOST_ONLY=1"
     )
   endif()
 endif()

@@ -15,6 +15,8 @@
 #ifndef MOCAP_LOCALIZATION_ADAPTER__ADAPTER_NODE_HPP_
 #define MOCAP_LOCALIZATION_ADAPTER__ADAPTER_NODE_HPP_
 
+#include <rmw/types.h>
+
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -29,7 +31,6 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/rclcpp.hpp>
-#include <rmw/types.h>
 
 #include "localization_contracts/gate.hpp"
 #include "localization_contracts/rigid_transform.hpp"

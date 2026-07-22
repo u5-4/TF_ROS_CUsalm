@@ -697,6 +697,9 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   std::lock_guard<std::mutex> lock(mutex_);
   UpdatePublisherEvidenceLocked();
   UpdateOutputPublisherEvidenceLocked();
+  const bool shadow_output_publisher_authority_invalid =
+    output_publisher_count_ == 1U &&
+    (!output_publisher_identity_valid_ || !output_publisher_type_valid_);
 
   if (publisher_count_ > 1U) {
     ++publisher_authority_violation_;
@@ -713,9 +716,7 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   } else if (output_publisher_count_ > 1U) {
     ++output_publisher_authority_violation_;
     health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_NOT_UNIQUE");
-  } else if (output_publisher_count_ == 1U &&
-    (!output_publisher_identity_valid_ || !output_publisher_type_valid_))
-  {
+  } else if (shadow_output_publisher_authority_invalid) {
     ++output_publisher_authority_violation_;
     health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_AUTHORITY_INVALID");
   }
