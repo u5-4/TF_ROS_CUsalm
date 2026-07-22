@@ -26,7 +26,6 @@
 #include <Eigen/Core>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <rclcpp/message_info.hpp>
-#include <rclcpp/topic_endpoint_info.hpp>
 
 #include "localization_contracts/errors.hpp"
 #include "localization_contracts/gate.hpp"
