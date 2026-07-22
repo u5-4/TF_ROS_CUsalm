@@ -1,13 +1,24 @@
-// Copyright (c) 2026 u5-4
-// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 u5-4
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "localization_contracts/validation.hpp"
+
+#include <Eigen/Eigenvalues>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-
-#include <Eigen/Eigenvalues>
 
 #include "localization_contracts/errors.hpp"
 
@@ -139,28 +150,32 @@ std::vector<ValidationIssue> ValidateOdometrySample(
   const std::string child = ValidateFrameId(expected_child_frame);
   std::vector<ValidationIssue> issues;
   if (sample.parent_frame != parent) {
-    issues.push_back(ValidationIssue{
-      "PARENT_FRAME_MISMATCH",
-      "expected '" + parent + "', got '" + sample.parent_frame + "'",
-      true});
+    issues.push_back(
+      ValidationIssue{
+        "PARENT_FRAME_MISMATCH",
+        "expected '" + parent + "', got '" + sample.parent_frame + "'",
+        true});
   }
   if (sample.child_frame != child) {
-    issues.push_back(ValidationIssue{
-      "CHILD_FRAME_MISMATCH",
-      "expected '" + child + "', got '" + sample.child_frame + "'",
-      true});
+    issues.push_back(
+      ValidationIssue{
+        "CHILD_FRAME_MISMATCH",
+        "expected '" + child + "', got '" + sample.child_frame + "'",
+        true});
   }
   if (sample.stamp_ns <= 0) {
-    issues.push_back(ValidationIssue{
-      "INVALID_TIMESTAMP", "timestamp must be positive", false});
+    issues.push_back(
+      ValidationIssue{
+        "INVALID_TIMESTAMP", "timestamp must be positive", false});
   }
   if (!sample.position.allFinite() ||
     !sample.linear_velocity.allFinite() || !sample.angular_velocity.allFinite())
   {
-    issues.push_back(ValidationIssue{
-      "NONFINITE_MEASUREMENT",
-      "position and twist must contain only finite values",
-      false});
+    issues.push_back(
+      ValidationIssue{
+        "NONFINITE_MEASUREMENT",
+        "position and twist must contain only finite values",
+        false});
   }
   try {
     (void)QuaternionFromRosXyzw(sample.orientation_xyzw);
@@ -168,16 +183,18 @@ std::vector<ValidationIssue> ValidateOdometrySample(
     issues.push_back(ValidationIssue{"INVALID_QUATERNION", error.what(), false});
   }
   if (!CovarianceIsSymmetricPositiveSemidefinite(sample.pose_covariance)) {
-    issues.push_back(ValidationIssue{
-      "INVALID_POSE_COVARIANCE",
-      "pose covariance must be finite, symmetric, and positive semidefinite",
-      false});
+    issues.push_back(
+      ValidationIssue{
+        "INVALID_POSE_COVARIANCE",
+        "pose covariance must be finite, symmetric, and positive semidefinite",
+        false});
   }
   if (!CovarianceIsSymmetricPositiveSemidefinite(sample.twist_covariance)) {
-    issues.push_back(ValidationIssue{
-      "INVALID_TWIST_COVARIANCE",
-      "twist covariance must be finite, symmetric, and positive semidefinite",
-      false});
+    issues.push_back(
+      ValidationIssue{
+        "INVALID_TWIST_COVARIANCE",
+        "twist covariance must be finite, symmetric, and positive semidefinite",
+        false});
   }
   return issues;
 }

@@ -1,7 +1,21 @@
-// Copyright (c) 2026 u5-4
-// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 u5-4
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "cuvslam_localization_adapter/contract_config.hpp"
+
+#include <openssl/sha.h>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
@@ -20,9 +34,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <openssl/sha.h>
-#include <yaml-cpp/yaml.h>
 
 #include "localization_contracts/errors.hpp"
 #include "localization_contracts/rigid_transform.hpp"
@@ -175,9 +186,10 @@ std::string AbsoluteTopic(const YAML::Node & node, const std::string & label)
   if (value.size() < 2U || value.front() != '/' || value.find("//") != std::string::npos) {
     throw std::runtime_error(label + " must be a non-root absolute ROS topic");
   }
-  if (std::any_of(value.begin(), value.end(), [](const unsigned char character) {
-      return std::isspace(character) != 0;
-    }))
+  if (std::any_of(
+      value.begin(), value.end(), [](const unsigned char character) {
+        return std::isspace(character) != 0;
+      }))
   {
     throw std::runtime_error(label + " must not contain whitespace");
   }
@@ -190,9 +202,10 @@ std::string AbsoluteNodeName(const YAML::Node & node, const std::string & label)
   if (value.size() < 2U || value.front() != '/' || value.find("//") != std::string::npos) {
     throw std::runtime_error(label + " must be a non-root fully qualified ROS node name");
   }
-  if (std::any_of(value.begin(), value.end(), [](const unsigned char character) {
-      return std::isspace(character) != 0;
-    }))
+  if (std::any_of(
+      value.begin(), value.end(), [](const unsigned char character) {
+        return std::isspace(character) != 0;
+      }))
   {
     throw std::runtime_error(label + " must not contain whitespace");
   }
@@ -304,11 +317,11 @@ InputContractConfig ParseInput(const YAML::Node & node)
       diagnostic_node["required_values"], "diagnostic.required_values");
     diagnostics.push_back(
       RequiredDiagnosticConfig{
-        name,
-        hardware_id,
-        expected_publisher,
-        static_cast<std::uint8_t>(maximum_level),
-        std::move(required_values)});
+          name,
+          hardware_id,
+          expected_publisher,
+          static_cast<std::uint8_t>(maximum_level),
+          std::move(required_values)});
   }
 
   return InputContractConfig{
@@ -375,14 +388,16 @@ HealthContractConfig ParseHealth(const YAML::Node & node)
     PositiveSize(
       node["odometry_rate_window_samples"],
       "health.odometry_rate_window_samples")};
-  const double minimum_stale = std::min({
-      health.odometry_stale_after_sec,
-      health.tracking_stale_after_sec,
-      health.diagnostic_stale_after_sec});
-  const double maximum_stale = std::max({
-      health.odometry_stale_after_sec,
-      health.tracking_stale_after_sec,
-      health.diagnostic_stale_after_sec});
+  const double minimum_stale = std::min(
+      {
+        health.odometry_stale_after_sec,
+        health.tracking_stale_after_sec,
+        health.diagnostic_stale_after_sec});
+  const double maximum_stale = std::max(
+      {
+        health.odometry_stale_after_sec,
+        health.tracking_stale_after_sec,
+        health.diagnostic_stale_after_sec});
   if (health.diagnostic_period_sec >= minimum_stale) {
     throw std::runtime_error(
             "diagnostic_period_sec must be smaller than every stale threshold");

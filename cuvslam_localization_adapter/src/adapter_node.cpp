@@ -1,7 +1,20 @@
-// Copyright (c) 2026 u5-4
-// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 u5-4
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include "cuvslam_localization_adapter/adapter_node.hpp"
+
+#include <Eigen/Core>
 
 #include <algorithm>
 #include <array>
@@ -23,7 +36,6 @@
 #include <builtin_interfaces/msg/time.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
-#include <Eigen/Core>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <rclcpp/message_info.hpp>
 
@@ -800,15 +812,11 @@ void CuvslamLocalizationAdapter::OnDiagnosticTimer()
   UpdatePublisherEvidenceLocked();
   if (odometry_publisher_count_ > 1U) {
     health_gate_.MarkLatched("ODOMETRY_PUBLISHER_NOT_UNIQUE");
-  } else if (odometry_publisher_count_ == 1U &&
-    !odometry_publisher_identity_valid_)
-  {
+  } else if (odometry_publisher_count_ == 1U && !odometry_publisher_identity_valid_) {
     health_gate_.MarkLatched("ODOMETRY_PUBLISHER_IDENTITY_MISMATCH");
   } else if (status_publisher_count_ > 1U) {
     health_gate_.MarkLatched("TRACKING_STATUS_PUBLISHER_NOT_UNIQUE");
-  } else if (status_publisher_count_ == 1U &&
-    !status_publisher_identity_valid_)
-  {
+  } else if (status_publisher_count_ == 1U && !status_publisher_identity_valid_) {
     health_gate_.MarkLatched("TRACKING_STATUS_PUBLISHER_IDENTITY_MISMATCH");
   }
   if (health_gate_.State() != HealthState::kLatchedFault) {
@@ -919,42 +927,52 @@ void CuvslamLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now
     Value("covariance_status", contract_.covariance.status),
   };
   const auto stamp = stamp_guard_.LastAcceptedNanoseconds();
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_input_stamp_ns", stamp.has_value() ? std::to_string(stamp.value()) : "not_received"));
   const auto sequence_stamp = odometry_sequence_guard_.LastAcceptedNanoseconds();
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_sequence_stamp_ns",
       sequence_stamp.has_value() ?
       std::to_string(sequence_stamp.value()) : "not_received"));
   const auto status_stamp = status_stamp_guard_.LastAcceptedNanoseconds();
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_status_stamp_ns",
       status_stamp.has_value() ? std::to_string(status_stamp.value()) : "not_received"));
   const auto odometry_age = AgeSeconds(last_odometry_received_at_, now);
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_receive_age_sec",
       odometry_age.has_value() ? std::to_string(odometry_age.value()) : "not_received"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "observed_odometry_rate_hz",
       observed_odometry_rate_hz_.has_value() ?
       std::to_string(observed_odometry_rate_hz_.value()) : "warming_up"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "maximum_recent_stamp_gap_sec",
       maximum_recent_stamp_gap_sec_.has_value() ?
       std::to_string(maximum_recent_stamp_gap_sec_.value()) : "warming_up"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_odometry_receive_gap_sec",
       last_odometry_receive_gap_sec_.has_value() ?
       std::to_string(last_odometry_receive_gap_sec_.value()) : "not_received"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_odometry_clock_residual_sec",
       last_odometry_clock_residual_sec_.has_value() ?
       std::to_string(last_odometry_clock_residual_sec_.value()) : "not_received"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_status_clock_residual_sec",
       last_status_clock_residual_sec_.has_value() ?
       std::to_string(last_status_clock_residual_sec_.value()) : "not_received"));
-  status.values.push_back(Value(
+  status.values.push_back(
+    Value(
       "last_diagnostic_clock_residual_sec",
       last_diagnostic_clock_residual_sec_.has_value() ?
       std::to_string(last_diagnostic_clock_residual_sec_.value()) : "not_received"));
