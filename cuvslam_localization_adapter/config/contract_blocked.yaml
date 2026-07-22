@@ -1,0 +1,86 @@
+# Copyright (c) 2026 u5-4
+# SPDX-License-Identifier: Apache-2.0
+
+schema_version: 1
+contract_id: d435i_fcu_cuvslam_shadow_20260722
+status: blocked
+input:
+  odometry_topic: /visual_slam/tracking/odometry
+  visual_slam_status_topic: /visual_slam/status
+  diagnostics_topic: /diagnostics
+  expected_odometry_publisher: /visual_slam_node
+  expected_status_publisher: /visual_slam_node
+  expected_parent_frame: odom
+  expected_child_frame: camera_link
+  expected_status_frame: map
+  accepted_vo_states: [1]
+  required_diagnostics:
+    - name: "/aligned_fcu_imu_relay: aligned FCU IMU"
+      hardware_id: px4-highres-imu-105-ttyTHS2
+      expected_publisher: /aligned_fcu_imu_relay
+      maximum_level: 0
+      required_values:
+        input_topic: /mavros/imu/data_raw
+        output_topic: /fcu/imu/data_raw_aligned
+        expected_input_frame: base_link
+        output_frame: fcu_imu
+        zero_stamp: "0"
+        invalid_stamp: "0"
+        duplicate: "0"
+        nonmonotonic: "0"
+        frame_mismatch: "0"
+        nonfinite_measurement: "0"
+        clock_domain_mismatch: "0"
+        aligned_out_of_range: "0"
+    - name: "/d435i_cuvslam_runtime_health_monitor: calibrated runtime"
+      hardware_id: "243622070369"
+      expected_publisher: /d435i_cuvslam_runtime_health_monitor
+      maximum_level: 0
+      required_values:
+        calibration_id: d435i_243622070369_factory_rectified_px4_imu_20260720
+        left_camera_info_topic: /camera/infra1/camera_info
+        right_camera_info_topic: /camera/infra2/camera_info
+        camera_imu_topic: /camera/imu
+        odometry_topic: /visual_slam/tracking/odometry
+        expected_odometry_frame: odom
+        expected_odometry_child_frame: camera_link
+        known_right_frame_reuse_observed: "True"
+        forbidden_camera_imu: "0"
+health:
+  diagnostic_period_sec: 1.0
+  odometry_stale_after_sec: 2.0
+  tracking_stale_after_sec: 2.0
+  diagnostic_stale_after_sec: 2.5
+  startup_timeout_sec: 35.0
+  recovery_consecutive_samples: 30
+  minimum_odometry_rate_hz: 60.0
+  maximum_odometry_stamp_gap_sec: 0.1
+  maximum_odometry_receive_gap_sec: 0.1
+  maximum_clock_residual_sec: 0.25
+  maximum_status_odometry_skew_sec: 0.1
+  maximum_position_step_m: 0.5
+  maximum_rotation_step_deg: 45.0
+  odometry_rate_window_samples: 30
+extrinsic:
+  status: blocked
+  parent_frame: base_link
+  child_frame: camera_link
+  translation_m: null
+  rotation_xyzw: null
+  provenance: null
+  reason: "T[base_link,fcu_imu] has not been measured or approved"
+twist:
+  status: blocked
+  policy: reject
+  approval_id: null
+  reason: "cuVSLAM window pose difference is not an approved instantaneous child twist"
+covariance:
+  status: blocked
+  policy: reject
+  approval_id: null
+  reason: "tracking covariance is window dispersion, not approved estimator uncertainty"
+publication:
+  authorization: shadow_only
+  output_topic: /localization/odometry
+  output_parent_frame: odom
+  output_child_frame: base_link

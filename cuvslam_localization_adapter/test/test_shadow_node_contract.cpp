@@ -1,0 +1,126 @@
+// Copyright (c) 2026 u5-4
+// SPDX-License-Identifier: Apache-2.0
+
+#include <memory>
+#include <stdexcept>
+#include <string>
+
+#include <gtest/gtest.h>
+#include <rclcpp/node_interfaces/node_graph_interface.hpp>
+#include <rclcpp/rclcpp.hpp>
+
+#include "cuvslam_localization_adapter/adapter_node.hpp"
+
+namespace cuvslam_localization_adapter
+{
+namespace
+{
+
+class ShadowNodeContract : public ::testing::Test
+{
+protected:
+  static void SetUpTestSuite()
+  {
+    if (!rclcpp::ok()) {
+      int argc = 0;
+      char ** argv = nullptr;
+      rclcpp::init(argc, argv);
+    }
+  }
+
+  static void TearDownTestSuite()
+  {
+    if (rclcpp::ok()) {
+      rclcpp::shutdown();
+    }
+  }
+};
+
+TEST_F(ShadowNodeContract, DefaultGraphHasNoStateTfOrControlPublishers)
+{
+  const std::string contract =
+    std::string(TEST_FIXTURE_DIR) + "/../../config/contract_blocked.yaml";
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("mode", "shadow"),
+      rclcpp::Parameter("contract_file", contract),
+    });
+  auto node = std::make_shared<CuvslamLocalizationAdapter>(options);
+
+  const auto publishers = node->get_node_graph_interface()
+    ->get_publisher_names_and_types_by_node(node->get_name(), node->get_namespace());
+  EXPECT_EQ(publishers.count("/localization/odometry"), 0U);
+  EXPECT_EQ(publishers.count("/state/odom"), 0U);
+  EXPECT_EQ(publishers.count("/localization/mavros_candidate"), 0U);
+  EXPECT_EQ(publishers.count("/mavros/odometry/out"), 0U);
+  EXPECT_EQ(publishers.count("/tf"), 0U);
+  EXPECT_EQ(publishers.count("/tf_static"), 0U);
+  EXPECT_EQ(publishers.count("/diagnostics"), 1U);
+}
+
+TEST_F(ShadowNodeContract, RejectsAnyNonShadowRuntimeMode)
+{
+  const std::string contract =
+    std::string(TEST_FIXTURE_DIR) + "/approved_synthetic_contract.yaml";
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("mode", "passive"),
+      rclcpp::Parameter("contract_file", contract),
+    });
+  EXPECT_THROW(
+    std::make_shared<CuvslamLocalizationAdapter>(options),
+    std::runtime_error);
+}
+
+TEST_F(ShadowNodeContract, ApprovedSyntheticExtrinsicStillCreatesNoStatePublisher)
+{
+  const std::string contract =
+    std::string(TEST_FIXTURE_DIR) + "/approved_synthetic_contract.yaml";
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({
+      rclcpp::Parameter("mode", "shadow"),
+      rclcpp::Parameter("contract_file", contract),
+    });
+  auto node = std::make_shared<CuvslamLocalizationAdapter>(options);
+
+  const auto publishers = node->get_node_graph_interface()
+    ->get_publisher_names_and_types_by_node(node->get_name(), node->get_namespace());
+  EXPECT_EQ(publishers.count("/localization/odometry"), 0U);
+  EXPECT_EQ(publishers.count("/diagnostics"), 1U);
+}
+
+TEST_F(ShadowNodeContract, RejectsRemappingOfContractBoundTopics)
+{
+  const std::string contract =
+    std::string(TEST_FIXTURE_DIR) + "/approved_synthetic_contract.yaml";
+  rclcpp::NodeOptions options;
+  options.arguments({
+      "--ros-args",
+      "--remap",
+      "/synthetic/odometry:=/untrusted/odometry",
+    });
+  options.parameter_overrides({
+      rclcpp::Parameter("mode", "shadow"),
+      rclcpp::Parameter("contract_file", contract),
+    });
+  EXPECT_THROW(
+    std::make_shared<CuvslamLocalizationAdapter>(options),
+    std::runtime_error);
+
+  rclcpp::NodeOptions diagnostics_options;
+  diagnostics_options.arguments({
+      "--ros-args",
+      "--remap",
+      "/diagnostics:=/mavros/odometry/out",
+    });
+  diagnostics_options.parameter_overrides({
+      rclcpp::Parameter("mode", "shadow"),
+      rclcpp::Parameter("contract_file", contract),
+    });
+  EXPECT_THROW(
+    std::make_shared<CuvslamLocalizationAdapter>(diagnostics_options),
+    std::runtime_error);
+}
+
+}  // namespace
+}  // namespace cuvslam_localization_adapter

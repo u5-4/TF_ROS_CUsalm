@@ -1,0 +1,62 @@
+# Copyright (c) 2026 u5-4
+# SPDX-License-Identifier: Apache-2.0
+
+schema_version: 1
+schema_version: 1
+contract_id: duplicate_key_must_be_rejected
+status: blocked
+input:
+  odometry_topic: /input
+  visual_slam_status_topic: /status
+  diagnostics_topic: /diagnostics
+  expected_odometry_publisher: /synthetic_visual_slam
+  expected_status_publisher: /synthetic_visual_slam
+  expected_parent_frame: odom
+  expected_child_frame: camera_link
+  expected_status_frame: map
+  accepted_vo_states: [1]
+  required_diagnostics:
+    - name: required
+      hardware_id: synthetic-hardware
+      expected_publisher: /synthetic_diagnostic_source
+      maximum_level: 0
+      required_values:
+        state: ready
+health:
+  diagnostic_period_sec: 0.1
+  odometry_stale_after_sec: 1.0
+  tracking_stale_after_sec: 1.0
+  diagnostic_stale_after_sec: 1.0
+  startup_timeout_sec: 2.0
+  recovery_consecutive_samples: 3
+  minimum_odometry_rate_hz: 10.0
+  maximum_odometry_stamp_gap_sec: 0.2
+  maximum_odometry_receive_gap_sec: 0.2
+  maximum_clock_residual_sec: 0.5
+  maximum_status_odometry_skew_sec: 0.2
+  maximum_position_step_m: 1.0
+  maximum_rotation_step_deg: 90.0
+  odometry_rate_window_samples: 3
+extrinsic:
+  status: blocked
+  parent_frame: base_link
+  child_frame: camera_link
+  translation_m: null
+  rotation_xyzw: null
+  provenance: null
+  reason: duplicate root key test
+twist:
+  status: blocked
+  policy: reject
+  approval_id: null
+  reason: blocked
+covariance:
+  status: blocked
+  policy: reject
+  approval_id: null
+  reason: blocked
+publication:
+  authorization: shadow_only
+  output_topic: /localization/odometry
+  output_parent_frame: odom
+  output_child_frame: base_link
