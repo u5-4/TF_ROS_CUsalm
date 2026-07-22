@@ -6,7 +6,7 @@
 
 > **项目状态：合同设计阶段，禁止用于飞行。**
 >
-> 当前已观察到 cuVSLAM 持续发布 parent=`odom`、child=`camera_link` 的 odometry，约 90 Hz；aligned FCU IMU 约 170 Hz；受控刚体运动能够产生连续响应。mapping-on 链路曾运行约 17 分 48 秒，但最新 odometry-only 版本仍需 Jetson A/B。`T[odom,base_link]`、`T[map,odom]`、YOPO 速度兼容、协方差传播以及 PX4 external vision 均未完成端到端验收。
+> 当前已观察到 cuVSLAM 持续发布 parent=`odom`、child=`camera_link` 的 odometry，约 90 Hz；aligned FCU IMU 约 170 Hz；受控刚体运动能够产生连续响应。VRPN `droneyee207` pose 已在 Jetson 上观测到约 120 Hz，并完成位置三轴和正偏航方向检查。mapping-on 链路曾运行约 17 分 48 秒，但最新 odometry-only 版本仍需 Jetson A/B。`T[odom,base_link]`、`T[map,odom]`、YOPO 速度兼容、协方差传播以及 PX4 external vision 均未完成端到端验收。
 
 本仓库只处理**定位状态的读取、坐标规范化和安全分发**。轨迹、目标、姿态指令、推力指令以及任何飞控写命令都不属于本仓库。
 
@@ -47,14 +47,24 @@
 - 只有 pose、twist、covariance 和外参合同均满足时，才输出标准 `/localization/odometry`；
 - diagnostics 在节点存活期间始终发布；任一合同失效时停止状态输出，并通过 diagnostics 明确报告原因。
 
-### 3.2 可选兼容组件负责
+### 3.2 动捕影子 adapter 负责
+
+- 显式订阅 `/droneyee207/pose`，不自动选择第一个 VRPN tracker；
+- 把输入固定解释为 `T[world,mocap_rigid_body]`，检查 publisher FQN/GID、frame、时间戳、频率、gap、stale、有限值和四元数；
+- 使用版本化的 `T[mocap_world,world]` 和 `T[base_link,mocap_rigid_body]` 计算 `T[mocap_world,base_link]`；
+- 首版只发布类型受限的 `/localization/shadow/mocap/assumed_base_pose` (`ShadowPoseCandidate`) 和 diagnostics；
+- 不消费 VRPN twist/accel，不构造缺少证据的 covariance，不发布 TF、规范 odometry、YOPO 状态或 MAVROS 输入。
+
+当前 `T[base_link,mocap_rigid_body]=I` 来自“四个标记点围绕飞控 IMU、虚拟中心与飞控 IMU 基本同高”的安装假设，不是测量批准的飞行外参。因此该输出只能用于录包、方向检查和影子对比。
+
+### 3.3 可选兼容组件负责
 
 - `yopo_legacy_bridge`：把规范状态转换为当前 YOPO 暂时要求的世界系线速度接口；
 - `mavros_external_odometry_gateway`：在单独安全阶段生成并可选发送 PX4 external vision 候选数据。
 
 这些组件必须是独立进程、独立 launch，并且不能改变 `/localization/odometry` 的标准语义。
 
-### 3.3 本仓库不负责
+### 3.4 本仓库不负责
 
 - 启动或修改 RealSense 驱动；
 - 修改 cuVSLAM core 或链接仓库中的其他 cuVSLAM SDK；
@@ -67,7 +77,7 @@
 - SLAM 建图、回环或全局重定位；
 - 在缺少全局对齐来源时猜测 `T[map,odom]`。
 
-### 3.4 SO3 边界
+### 3.5 SO3 边界
 
 本仓库不提供 SO3 专用 odometry，也不直接向 SO3 发送控制消息。若 SO3 需要定位反馈，它只能消费标准 `/localization/odometry` 或由控制仓库定义的独立、经过审计的只读桥；不得消费 `/state/odom`。YOPO 到 SO3 的参考轨迹和 SO3 到 MAVROS 的姿态/推力命令属于控制链路，必须在另一个仓库中单独固定 frame、单位、重力符号和安全门禁。
 
@@ -76,34 +86,33 @@
 下图是计划中的组件边界，不表示这些节点当前已经实现。方括号中的输出均受阶段门禁约束。
 
 ```text
-D435i + FCU IMU
-        |
-        v
-Isaac ROS cuVSLAM
-  /visual_slam/tracking/odometry   parent=odom, child=camera_link
-  /visual_slam/status
-  /diagnostics
-        |
-        v
-cuvslam_localization_adapter <--- approved T[base_link,camera_link] + input contracts
-  [planned; core; passive]
-        |
-        +--> [/localization/odometry]  parent=odom, child=base_link
-        +--> /diagnostics              always available while node is alive
-                  |
-                  +--> planners / logger / validation
-                  |
-                  +--> yopo_legacy_bridge <--- approved T[map,odom]
-                  |      `--> [/state/odom]（临时非标准兼容接口）
-                  |
-                  `--> mavros_external_odometry_gateway
-                         ^    approved T[mavros_local,odom] + pinned plugin contract
-                         +--> [/localization/mavros_candidate]
-                         `--> [/mavros/odometry/out]（默认与 shadow 均无 publisher）
-                                      |
-                                      v
-                              MAVROS 2.14 -> PX4 EKF2
+D435i + FCU IMU                         VRPN server 192.168.151.168
+        |                                          |
+        v                                          v
+Isaac ROS cuVSLAM                         vrpn_client_ros2
+  raw: T[odom,camera_link]                  raw: T[world,mocap_rigid_body]
+        |                                          |
+        v                                          v
+cuvslam_localization_adapter              mocap_localization_adapter
+  T[odom,base_link]                         T[mocap_world,base_link]
+        |                                          |
+        +------------------+-----------------------+
+                           |
+                    comparison/logger
+             (一次对齐并在 localization epoch 内锁定)
+                           |
+                 [future source selector]
+              launch-time: cuvslam | mocap
+                           |
+                 /localization/odometry
+                           |
+           mavros_external_odometry_gateway
+                （唯一允许的 PX4 writer）
+                           |
+                  MAVROS 2.14 -> PX4 EKF2
 ```
+
+两个定位源是同级关系。禁止把动捕接在 cuVSLAM 后面，也禁止让两个 adapter 分别向 MAVROS 发布。源选择只允许在 launch 时完成；首版不支持飞行中热切换或故障自动接管。
 
 核心 adapter 不得创建任何 `/mavros/*` publisher，不得调用 arming、mode、OFFBOARD 或 PX4 参数服务。
 
@@ -133,6 +142,8 @@ map                         项目世界系，目标为 ENU
 | `base_link` | FLU：x 前、y 左、z 上 | 飞机质心/控制参考点 | 目标合同；物理原点与外参待固定 |
 | `fcu_imu` | 目标为 ROS FLU | 飞控 IMU 运行 frame/物理中心 | MAVROS 源码与静态重力样本支持 FLU；单轴实测和到质心关系待完成 |
 | `camera_link` | FLU | D435 机身参考点 | 当前 cuVSLAM child frame |
+| `mocap_world` | 固定、右手、z-up；水平 x/y 为实验室参考轴 | 动捕本地世界，不代表地理东/北 | 三轴实测候选；与 raw `world` 暂按 identity 对齐 |
+| `mocap_rigid_body` | FLU：x 前、y 左、z 上 | `droneyee207` 刚体虚拟原点 | 轴配置已确认；原点与 `base_link` 重合为未测量安装假设 |
 | optical frames | x 右、y 下、z 前 | 图像投影坐标 | ROS 相机标准 |
 | `mavros_local` | 右手、z-up；水平轴由显式对齐合同定义 | gateway 内部候选 parent | 目标合同；不是 raw `odom` 的别名，也不直接发送给 MAVROS |
 | `MAV_FRAME_LOCAL_NED` | x 北、y 东、z 下 | 地理/导航对齐的 MAVLink local parent enum | 仅 MAVROS/PX4 消息边界 |
@@ -179,6 +190,18 @@ p[A] = T[A,B] * p[B]
 T[camera_link,base_link] = inverse(T[base_link,camera_link])
 T[odom,base_link] = T[odom,camera_link] * T[camera_link,base_link]
 ```
+
+当前动捕 pose 固定解释为 `T[world,mocap_rigid_body]`。影子机体 pose 为：
+
+```text
+T[mocap_rigid_body,base_link] = inverse(T[base_link,mocap_rigid_body])
+T[mocap_world,base_link] =
+  T[mocap_world,world]
+  * T[world,mocap_rigid_body]
+  * T[mocap_rigid_body,base_link]
+```
+
+首版两个静态变换均采用 identity，但批准状态不同：`T[mocap_world,world]=I` 是本地实验室 frame 的显式命名；`T[base_link,mocap_rigid_body]=I` 只是安装假设。两者都不得被外推成“动捕已经与地理 ENU 或 PX4 local frame 对齐”。
 
 当且仅当存在经过批准且健康的 `T[map,odom]`（TF parent=`map`、child=`odom`）时，才能生成：
 
@@ -485,8 +508,15 @@ localization_state_adapter/
 ├── localization_contracts/
 │   ├── include/ or localization_contracts/
 │   └── test/
+├── localization_adapter_interfaces/
+│   └── msg/ShadowPoseCandidate.msg
 ├── cuvslam_localization_adapter/
 │   ├── src/ or cuvslam_localization_adapter/
+│   ├── config/
+│   ├── launch/
+│   └── test/
+├── mocap_localization_adapter/
+│   ├── include/ and src/
 │   ├── config/
 │   ├── launch/
 │   └── test/
@@ -606,6 +636,8 @@ localization_state_adapter/
 | MAVROS | `2.14.0`；精确 checkout commit 与 `odometry` plugin frame 分支待阶段 4 固定 |
 | PX4 | `1.15.4` 实测平台 |
 | 相机 | Intel RealSense D435i，factory-rectified stereo |
+| 动捕客户端 | `u5-4/vrpn_client_ros2@1b9731c`，server `192.168.151.168:3883` |
+| 动捕刚体 | `droneyee207`，`/droneyee207/pose`，现场约 120 Hz |
 
 本仓库只通过标准 ROS 2 消息和 TF 与 Isaac ROS Visual SLAM 通信，不构建、不包含、不链接 cuVSLAM core 二进制或头文件。
 
@@ -622,7 +654,20 @@ localization_state_adapter/
 
 ## 17. 当前发布边界
 
-阶段 0 和阶段 1 只允许定义接口、实现影子计算和运行测试。缺少批准外参、twist 或 covariance 策略时，规范 odometry 必须为 `messages=0`，但 diagnostics 必须继续发布；禁止发送数值全零的占位 odometry。
+阶段 0 和阶段 1 只允许定义接口、实现影子计算和运行测试。缺少批准外参、twist 或 covariance 策略时，规范 odometry 必须为 `messages=0`，但 diagnostics 必须继续发布；禁止发送数值全零的占位 odometry。动捕分支允许发布下面这个源私有、类型受限的影子 pose，用于录包和对比：
+
+```text
+/localization/shadow/mocap/assumed_base_pose
+  type: localization_adapter_interfaces/msg/ShadowPoseCandidate
+  parent: mocap_world
+  semantic child: base_link
+  world_alignment_approved: false
+  extrinsic_approved: false
+  source_configuration_validated: false
+  capture_time_validated: false
+```
+
+这个话题不是 `/localization/odometry`，没有 twist/covariance，并且消息类型与 MAVROS pose/odometry 输入不兼容。每条消息都显式携带合同 ID、source frame、安装假设和时间语义，不能通过简单 remap 冒充飞控输入。
 
 只有阶段 2 被动验收通过后，默认定位启动路径才允许提供：
 
@@ -640,3 +685,86 @@ localization_state_adapter/
 ```
 
 README 暂不提供生产启动命令。只有代码、配置、单元测试、rosbag 回放和 Jetson 被动验收全部完成后，才能加入正式 build、launch 和停止流程。
+
+## 18. 动捕双源扩展状态
+
+### 18.1 已获得的现场证据
+
+2026-07-22 在 Jetson 容器内观测到：
+
+- `/droneyee207/pose` 类型为 `geometry_msgs/msg/PoseStamped`，唯一 publisher 为 `/vrpn_client_node`；
+- offered QoS 为 reliable、volatile，平均频率约 120 Hz；
+- `header.frame_id=world`；
+- 向上移动时 raw z 增加；从上往下看逆时针旋转时四元数表现为正 z 旋转；
+- 受控水平移动得到向前增量 `(+0.787,+0.109,+0.087) m`，向左增量 `(-0.110,+0.770,+0.026) m`；两个水平投影夹角约 `90.2 deg`；
+- 刚体局部轴在动捕软件中配置为 x 前、y 左、z 上。
+
+这些结果支持“固定实验室世界为右手 z-up、刚体为 FLU”的候选合同。测试期间姿态仍有约 `8.5 deg` 和 `17.7 deg` 的变化，因此它不构成精密外参标定，也不能证明实验室 x/y 是地理东/北。
+
+当前 VRPN client mainloop 配置为 60 Hz，而现场 topic throughput 约 120 msg/s；源码允许一次 mainloop 排出多条 tracker report，因此实际时间序列可能呈现“批内接近 0 ms、批间约 16.7 ms”。120 只能描述 callback 吞吐量，不能解释为均匀的 120 Hz 光学采样，更不能用当前 callback stamps 直接微分速度。adapter diagnostics 会分别报告最小/最大 stamp gap 和亚毫秒 gap 比例。
+
+### 18.2 VRPN 数据边界
+
+对 `vrpn_client_ros2@1b9731c` 的源码审计表明：
+
+- position 和 quaternion 原样复制，没有轴交换、符号取反、外参或 `world -> map` 转换；
+- 当前 `use_server_time=false`，header stamp 是 Jetson 上 VRPN callback 执行时的 ROS system time，不是光学曝光时刻，包含网络和调度延迟；
+- pose、twist 和 accel 是独立 callback，不能按同一 stamp 拼成一个状态；
+- 当前 `twist.angular` 和 `accel.angular` 忽略 VRPN 的对应时间间隔，不具备 ROS `rad/s` 或 `rad/s^2` 语义；
+- 上游没有 covariance，TF 发布路径未启用，同一 sender 的 sensor id 没有保留。
+
+因此首版只消费 PoseStamped 的 stamp、frame、position 和 quaternion。所有 VRPN twist/accel 字段都禁止进入 YOPO、规范定位或 MAVROS。
+
+当前 adapter 能绑定运行时 publisher 的 FQN、GID、消息类型和 QoS，但 VRPN 进程尚未发布自身 git revision、配置 hash 或 `use_server_time` 诊断证据。因此消息中的 revision/time 字段使用 `expected_*` 命名，并固定携带 `source_configuration_validated=false`；这项状态在增加受 GID 绑定的上游 manifest 前不得升级。
+
+### 18.3 目标运行模式
+
+| 模式 | PX4 主定位源 | cuVSLAM | 动捕 | 自动接管 |
+| --- | --- | --- | --- | --- |
+| `cuvslam_primary` | cuVSLAM | 主源 | 不要求启动 | 禁止 |
+| `mocap_primary` | 动捕 | 持续运行，仅统一坐标后对比和录包 | 主源 | 禁止 |
+
+两种模式最终都必须经过同一个 source selector 和同一个 MAVROS gateway。主源失效时立即停止 external odometry：`mocap_primary` 中 cuVSLAM 故障只能降低对比能力，不能切换成飞控定位源；动捕故障则必须停止该模式的飞控定位输出。
+
+为诚实观察 cuVSLAM 漂移，`T[mocap_world,odom]` 只允许在每次 localization epoch 开始时估计一次并锁定。禁止持续重新对齐，因为那会把待测漂移消掉。任一来源重启、GID 改变或定位重置都结束当前 epoch。
+
+### 18.4 当前分支实现范围
+
+分支 `feat/mocap-localization-shadow` 当前只实现：
+
+- `mocap_localization_adapter` C++17 节点；
+- 固定 tracker、publisher、GID、frame、时间和数值门禁；
+- identity 安装假设下的 source-private `ShadowPoseCandidate` 影子候选；
+- diagnostics、数学测试和 ROS graph 禁止边界测试；
+- 不创建 `/localization/odometry`、`/state/odom`、TF 或任何 `/mavros/*` publisher。
+
+本分支尚未实现 source selector、cuVSLAM/动捕一次性对齐、误差统计或 MAVROS gateway。Jetson 编译和被动运行验证通过前，不得把本节状态改成可飞行。
+
+开发验证命令：
+
+```bash
+cd /workspaces/isaac_ros-dev
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+colcon build --symlink-install \
+  --packages-up-to mocap_localization_adapter \
+  --event-handlers console_direct+
+
+source install/setup.bash
+colcon test \
+  --packages-select \
+    localization_contracts \
+    localization_adapter_interfaces \
+    mocap_localization_adapter \
+  --event-handlers console_direct+
+colcon test-result --verbose
+```
+
+影子节点只能在 VRPN 客户端已启动后单独运行：
+
+```bash
+ros2 launch mocap_localization_adapter mocap_adapter_shadow.launch.py
+```
+
+运行后必须确认 `/localization/odometry`、`/state/odom`、`/tf`、`/tf_static` 和 `/mavros/*` 没有来自该节点的 publisher。
