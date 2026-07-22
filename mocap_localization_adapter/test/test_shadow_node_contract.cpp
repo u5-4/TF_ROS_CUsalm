@@ -29,6 +29,15 @@ namespace mocap_localization_adapter
 namespace
 {
 
+rmw_qos_profile_t CompatibleShadowInputQos()
+{
+  rmw_qos_profile_t qos{};
+  qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+  qos.reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
+  qos.durability = RMW_QOS_POLICY_DURABILITY_VOLATILE;
+  return qos;
+}
+
 class ShadowNodeContract : public ::testing::Test
 {
 protected:
@@ -48,6 +57,44 @@ protected:
     }
   }
 };
+
+TEST(ShadowInputQosContract, AcceptsKeepLastAndUnreportedHistoryOnly)
+{
+  auto qos = CompatibleShadowInputQos();
+  EXPECT_TRUE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.history = RMW_QOS_POLICY_HISTORY_UNKNOWN;
+  EXPECT_TRUE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.history = RMW_QOS_POLICY_HISTORY_KEEP_ALL;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.history = RMW_QOS_POLICY_HISTORY_SYSTEM_DEFAULT;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+}
+
+TEST(ShadowInputQosContract, KeepsReliabilityAndDurabilityStrict)
+{
+  auto qos = CompatibleShadowInputQos();
+  qos.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.reliability = RMW_QOS_POLICY_RELIABILITY_UNKNOWN;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.reliability = RMW_QOS_POLICY_RELIABILITY_SYSTEM_DEFAULT;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.reliability = RMW_QOS_POLICY_RELIABILITY_RELIABLE;
+  qos.durability = RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.durability = RMW_QOS_POLICY_DURABILITY_UNKNOWN;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+
+  qos.durability = RMW_QOS_POLICY_DURABILITY_SYSTEM_DEFAULT;
+  EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
+}
 
 TEST_F(ShadowNodeContract, GraphContainsOnlyCandidatePoseAndDiagnosticsPublishers)
 {

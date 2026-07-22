@@ -114,7 +114,7 @@ AdapterConfig DeclareAndValidateConfig(rclcpp::Node * node)
 
   const std::string contract_id = node->declare_parameter<std::string>(
     "contract_id",
-    "droneyee207_mocap_shadow_20260722",
+    "droneyee207_mocap_shadow_20260722_v2",
     ReadOnlyDescriptor("Version-controlled shadow contract identifier."));
   const std::string source_revision = node->declare_parameter<std::string>(
     "source_revision",
@@ -196,7 +196,7 @@ AdapterConfig DeclareAndValidateConfig(rclcpp::Node * node)
     timestamp_semantics,
     "jetson_ros_callback_time_use_server_time_false");
   RequireEqual("extrinsic_status", extrinsic_status, "assumed_coincident_not_measured");
-  RequireEqual("contract_id", contract_id, "droneyee207_mocap_shadow_20260722");
+  RequireEqual("contract_id", contract_id, "droneyee207_mocap_shadow_20260722_v2");
   RequireEqual("source_revision", source_revision, "vrpn_client_ros2@1b9731c");
   RequireEqual(
     "extrinsic_assumption_id",

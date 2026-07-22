@@ -3,7 +3,7 @@
 
 mocap_localization_adapter:
   ros__parameters:
-    contract_id: droneyee207_mocap_shadow_20260722
+    contract_id: droneyee207_mocap_shadow_20260722_v2
     source_revision: vrpn_client_ros2@1b9731c
     mode: shadow
     authorization: shadow_candidate_only

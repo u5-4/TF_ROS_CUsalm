@@ -174,6 +174,17 @@ std::string HistoryToString(const rmw_qos_history_policy_t policy)
 
 }  // namespace
 
+bool ShadowInputPublisherQosIsCompatible(const rmw_qos_profile_t & qos) noexcept
+{
+  // Fast DDS on Humble may report UNKNOWN for an explicit KeepLast publisher.
+  const bool history_is_compatible =
+    qos.history == RMW_QOS_POLICY_HISTORY_KEEP_LAST ||
+    qos.history == RMW_QOS_POLICY_HISTORY_UNKNOWN;
+  return qos.reliability == RMW_QOS_POLICY_RELIABILITY_RELIABLE &&
+         qos.durability == RMW_QOS_POLICY_DURABILITY_VOLATILE &&
+         history_is_compatible;
+}
+
 MocapLocalizationAdapter::MocapLocalizationAdapter(const rclcpp::NodeOptions & options)
 : Node("mocap_localization_adapter", options),
   config_(DeclareAndValidateConfig(this)),
@@ -472,10 +483,7 @@ bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
     actual_qos_durability_ = DurabilityToString(qos.durability);
     actual_qos_history_ = HistoryToString(qos.history);
     actual_qos_depth_ = qos.depth;
-    publisher_qos_valid_ =
-      qos.reliability == RMW_QOS_POLICY_RELIABILITY_RELIABLE &&
-      qos.durability == RMW_QOS_POLICY_DURABILITY_VOLATILE &&
-      qos.history == RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+    publisher_qos_valid_ = ShadowInputPublisherQosIsCompatible(qos);
   }
   if (matching_gid_count == 0U) {
     health_gate_.MarkTransient("POSE_PUBLISHER_GID_NOT_DISCOVERED");
@@ -516,10 +524,7 @@ void MocapLocalizationAdapter::UpdatePublisherEvidenceLocked()
     actual_qos_durability_ = DurabilityToString(qos.durability);
     actual_qos_history_ = HistoryToString(qos.history);
     actual_qos_depth_ = qos.depth;
-    publisher_qos_valid_ =
-      qos.reliability == RMW_QOS_POLICY_RELIABILITY_RELIABLE &&
-      qos.durability == RMW_QOS_POLICY_DURABILITY_VOLATILE &&
-      qos.history == RMW_QOS_POLICY_HISTORY_KEEP_LAST;
+    publisher_qos_valid_ = ShadowInputPublisherQosIsCompatible(qos);
   }
 
   if (bound_publisher_gid_.has_value() && endpoints.size() == 1U &&
@@ -801,11 +806,17 @@ void MocapLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now)
     Value("rigid_body_axes", config_.rigid_body_axes),
     Value("expected_timestamp_semantics", config_.timestamp_semantics),
     Value("capture_time_validated", false),
-    Value("expected_input_qos", "reliable,volatile,keep_last,depth_any"),
+    Value(
+      "expected_input_qos",
+      "reliable,volatile,history_keep_last_or_rmw_unknown,depth_any"),
     Value("actual_qos_reliability", actual_qos_reliability_),
     Value("actual_qos_durability", actual_qos_durability_),
     Value("actual_qos_history", actual_qos_history_),
     Value("actual_qos_depth", actual_qos_depth_),
+    Value("qos_history_keep_last_confirmed", actual_qos_history_ == "keep_last"),
+    Value(
+      "qos_history_unknown_shadow_fallback",
+      publisher_qos_valid_ && actual_qos_history_ == "unknown"),
     Value("output_topic", config_.output_topic),
     Value("output_type", kShadowMessageType),
     Value("output_parent_frame", config_.output_parent_frame),

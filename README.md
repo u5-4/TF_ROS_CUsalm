@@ -693,7 +693,7 @@ README 暂不提供生产启动命令。只有代码、配置、单元测试、r
 2026-07-22 在 Jetson 容器内观测到：
 
 - `/droneyee207/pose` 类型为 `geometry_msgs/msg/PoseStamped`，唯一 publisher 为 `/vrpn_client_node`；
-- offered QoS 为 reliable、volatile，平均频率约 120 Hz；
+- offered QoS 为 reliable、volatile；Humble/Fast DDS 的 endpoint introspection 将 history/depth 报为 `UNKNOWN`，平均频率约 120 Hz；
 - `header.frame_id=world`；
 - 向上移动时 raw z 增加；从上往下看逆时针旋转时四元数表现为正 z 旋转；
 - 受控水平移动得到向前增量 `(+0.787,+0.109,+0.087) m`，向左增量 `(-0.110,+0.770,+0.026) m`；两个水平投影夹角约 `90.2 deg`；
@@ -715,7 +715,9 @@ README 暂不提供生产启动命令。只有代码、配置、单元测试、r
 
 因此首版只消费 PoseStamped 的 stamp、frame、position 和 quaternion。所有 VRPN twist/accel 字段都禁止进入 YOPO、规范定位或 MAVROS。
 
-当前 adapter 能绑定运行时 publisher 的 FQN、GID、消息类型和 QoS，但 VRPN 进程尚未发布自身 git revision、配置 hash 或 `use_server_time` 诊断证据。因此消息中的 revision/time 字段使用 `expected_*` 命名，并固定携带 `source_configuration_validated=false`；这项状态在增加受 GID 绑定的上游 manifest 前不得升级。
+当前 adapter 能绑定运行时 publisher 的 FQN、GID、消息类型，以及 endpoint graph 能可靠提供的 QoS 证据。Reliability 必须为 reliable，durability 必须为 volatile；history 只接受明确的 keep-last，或 Humble/Fast DDS introspection 的 `UNKNOWN`。`UNKNOWN` 仅表示 RMW 未报告，不能证明上游确实使用 KeepLast，diagnostics 必须将该回退显式报告。该回退只允许用于当前 shadow 阶段；`mocap_primary` 或任何 PX4 输出阶段必须改用受 GID 绑定的上游 manifest/固定配置证据，不得继续把 `UNKNOWN` 当作充分证据。VRPN 进程尚未发布自身 git revision、配置 hash 或 `use_server_time` 诊断证据，因此消息中的 revision/time 字段使用 `expected_*` 命名，并固定携带 `source_configuration_validated=false`；这项状态在增加上游 manifest 前不得升级。
+
+合同 ID `droneyee207_mocap_shadow_20260722_v2` 专门标识上述 shadow-only RMW history 回退语义；旧的无后缀 ID 对应严格要求 graph 报告 keep-last 的已废弃行为，两者不得混用于同一份录包或验收证据。
 
 ### 18.3 目标运行模式
 

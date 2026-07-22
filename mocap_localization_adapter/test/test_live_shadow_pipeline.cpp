@@ -73,6 +73,9 @@ std::string DiagnosticSummary(
     " publisher_count=" << DiagnosticValue(status, "publisher_count") <<
     " publisher_identity_valid=" << DiagnosticValue(status, "publisher_identity_valid") <<
     " publisher_qos_valid=" << DiagnosticValue(status, "publisher_qos_valid") <<
+    " actual_qos_reliability=" << DiagnosticValue(status, "actual_qos_reliability") <<
+    " actual_qos_durability=" << DiagnosticValue(status, "actual_qos_durability") <<
+    " actual_qos_history=" << DiagnosticValue(status, "actual_qos_history") <<
     " output_publisher_count=" << DiagnosticValue(status, "output_publisher_count") <<
     " receive_gap_violation=" << DiagnosticValue(status, "receive_gap_violation") <<
     " stamp_gap_violation=" << DiagnosticValue(status, "stamp_gap_violation") <<
@@ -169,6 +172,17 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   }
   ASSERT_TRUE(diagnostic_authority_is_ready()) <<
     DiagnosticSummary(latest_diagnostic_status);
+  const auto & authority_status = latest_diagnostic_status.value();
+  const std::string actual_qos_history =
+    DiagnosticValue(authority_status, "actual_qos_history");
+  ASSERT_TRUE(actual_qos_history == "keep_last" || actual_qos_history == "unknown") <<
+    DiagnosticSummary(latest_diagnostic_status);
+  EXPECT_EQ(
+    DiagnosticValue(authority_status, "qos_history_keep_last_confirmed"),
+    actual_qos_history == "keep_last" ? "1" : "0");
+  EXPECT_EQ(
+    DiagnosticValue(authority_status, "qos_history_unknown_shadow_fallback"),
+    actual_qos_history == "unknown" ? "1" : "0");
 
   constexpr std::int64_t kPosePeriodNanoseconds = 8000000LL;
   const auto pose_period = std::chrono::nanoseconds(kPosePeriodNanoseconds);
@@ -176,10 +190,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   const std::int64_t first_pose_stamp_ns =
     source->get_clock()->now().nanoseconds() + kPosePeriodNanoseconds;
   std::size_t pose_index = 0U;
-  const auto publish_pose =
-    [&pose_publisher, &source, &executor, &pose_index, first_pose_steady_time,
-    first_pose_stamp_ns]()
-    {
+  const auto publish_pose = [&]() {
       const auto pose_offset =
         std::chrono::nanoseconds(
         static_cast<std::int64_t>(pose_index) * kPosePeriodNanoseconds);
@@ -222,7 +233,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   EXPECT_DOUBLE_EQ(candidate->pose.position.x, 1.0);
   EXPECT_DOUBLE_EQ(candidate->pose.position.y, 2.0);
   EXPECT_DOUBLE_EQ(candidate->pose.position.z, 3.0);
-  EXPECT_EQ(candidate->contract_id, "droneyee207_mocap_shadow_20260722");
+  EXPECT_EQ(candidate->contract_id, "droneyee207_mocap_shadow_20260722_v2");
   EXPECT_EQ(candidate->authorization, "shadow_candidate_only");
   EXPECT_EQ(candidate->source_topic, "/droneyee207/pose");
   EXPECT_EQ(candidate->source_parent_frame, "world");

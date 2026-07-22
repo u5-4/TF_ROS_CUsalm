@@ -40,6 +40,9 @@
 namespace mocap_localization_adapter
 {
 
+// UNKNOWN history is an explicitly reported Humble RMW limitation in shadow mode only.
+bool ShadowInputPublisherQosIsCompatible(const rmw_qos_profile_t & qos) noexcept;
+
 class MocapLocalizationAdapter final : public rclcpp::Node
 {
 public:
