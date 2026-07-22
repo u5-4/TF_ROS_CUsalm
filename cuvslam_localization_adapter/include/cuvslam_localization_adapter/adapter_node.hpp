@@ -53,7 +53,7 @@ private:
   bool InputsAreHealthyLocked(const SteadyTime & now, std::string * reason) const;
   void UpdatePublisherEvidenceLocked();
   void UpdateOdometryRateLocked(std::int64_t stamp_ns);
-  bool ClockDomainMatches(std::int64_t stamp_ns, double * residual_sec) const;
+  bool ClockDomainMatches(std::int64_t stamp_ns, double * residual_sec);
   void MaybeAdvanceHealthLocked(const SteadyTime & now);
   void PublishDiagnosticsLocked(const SteadyTime & now);
   std::optional<double> AgeSeconds(

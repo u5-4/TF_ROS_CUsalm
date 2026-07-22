@@ -642,7 +642,7 @@ void CuvslamLocalizationAdapter::UpdateOdometryRateLocked(const std::int64_t sta
 
 bool CuvslamLocalizationAdapter::ClockDomainMatches(
   const std::int64_t stamp_ns,
-  double * residual_sec) const
+  double * residual_sec)
 {
   const std::int64_t now_ns = get_clock()->now().nanoseconds();
   if (now_ns <= 0 || stamp_ns <= 0) {
@@ -966,7 +966,7 @@ void CuvslamLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now
   }
 
   DiagnosticArray output;
-  output.header.stamp = get_clock()->now().to_msg();
+  output.header.stamp = get_clock()->now();
   output.status.push_back(std::move(status));
   diagnostics_publisher_->publish(output);
 }
