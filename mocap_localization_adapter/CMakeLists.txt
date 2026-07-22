@@ -88,6 +88,7 @@ if(BUILD_TESTING)
   if(TARGET test_live_shadow_pipeline)
     target_link_libraries(test_live_shadow_pipeline ${PROJECT_NAME}_core)
     ament_target_dependencies(test_live_shadow_pipeline
+      diagnostic_msgs
       geometry_msgs
       localization_adapter_interfaces
       rclcpp

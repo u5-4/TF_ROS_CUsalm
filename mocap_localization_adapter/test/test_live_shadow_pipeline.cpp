@@ -16,10 +16,14 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <sstream>
+#include <string>
 #include <thread>
 
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
@@ -32,8 +36,49 @@ namespace mocap_localization_adapter
 namespace
 {
 
+using diagnostic_msgs::msg::DiagnosticArray;
+using diagnostic_msgs::msg::DiagnosticStatus;
 using localization_adapter_interfaces::msg::ShadowPoseCandidate;
 using namespace std::chrono_literals;
+
+std::string DiagnosticValue(
+  const DiagnosticStatus & status,
+  const std::string & key)
+{
+  for (const auto & value : status.values) {
+    if (value.key == key) {
+      return value.value;
+    }
+  }
+  return "missing";
+}
+
+std::string DiagnosticSummary(
+  const std::optional<DiagnosticStatus> & latest_status)
+{
+  if (!latest_status.has_value()) {
+    return "mocap shadow diagnostic status was not received";
+  }
+  const auto & status = latest_status.value();
+  std::ostringstream summary;
+  summary << "level=" << static_cast<int>(status.level) <<
+    " message=" << status.message <<
+    " health_state=" << DiagnosticValue(status, "health_state") <<
+    " reason_code=" << DiagnosticValue(status, "reason_code") <<
+    " observed_pose_rate_hz=" << DiagnosticValue(status, "observed_pose_rate_hz") <<
+    " accepted=" << DiagnosticValue(status, "accepted") <<
+    " rejected=" << DiagnosticValue(status, "rejected") <<
+    " recovery=" << DiagnosticValue(status, "recovery_progress") <<
+    "/" << DiagnosticValue(status, "recovery_required") <<
+    " publisher_count=" << DiagnosticValue(status, "publisher_count") <<
+    " publisher_identity_valid=" << DiagnosticValue(status, "publisher_identity_valid") <<
+    " publisher_qos_valid=" << DiagnosticValue(status, "publisher_qos_valid") <<
+    " output_publisher_count=" << DiagnosticValue(status, "output_publisher_count") <<
+    " receive_gap_violation=" << DiagnosticValue(status, "receive_gap_violation") <<
+    " stamp_gap_violation=" << DiagnosticValue(status, "stamp_gap_violation") <<
+    " clock_domain_mismatch=" << DiagnosticValue(status, "clock_domain_mismatch");
+  return summary.str();
+}
 
 class LiveShadowPipeline : public ::testing::Test
 {
@@ -68,6 +113,21 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
     "/localization/shadow/mocap/assumed_base_pose",
     qos,
     [&candidate](const ShadowPoseCandidate::ConstSharedPtr message) {candidate = *message;});
+  const std::string diagnostic_status_name =
+    std::string(adapter->get_fully_qualified_name()) + ": mocap shadow contract";
+  std::optional<DiagnosticStatus> latest_diagnostic_status;
+  auto diagnostics_subscription = observer->create_subscription<DiagnosticArray>(
+    "/diagnostics",
+    qos,
+    [&latest_diagnostic_status, diagnostic_status_name](
+      const DiagnosticArray::ConstSharedPtr message)
+    {
+      for (const auto & status : message->status) {
+        if (status.name == diagnostic_status_name) {
+          latest_diagnostic_status = status;
+        }
+      }
+    });
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(adapter);
@@ -87,47 +147,76 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   }
   ASSERT_TRUE(graph_is_ready());
 
-  const auto evidence_deadline = std::chrono::steady_clock::now() + 250ms;
-  while (std::chrono::steady_clock::now() < evidence_deadline) {
+  const auto diagnostic_authority_is_ready = [&latest_diagnostic_status]() {
+      if (!latest_diagnostic_status.has_value()) {
+        return false;
+      }
+      const auto & status = latest_diagnostic_status.value();
+      return DiagnosticValue(status, "publisher_count") == "1" &&
+             DiagnosticValue(status, "publisher_identity_valid") == "1" &&
+             DiagnosticValue(status, "publisher_type_valid") == "1" &&
+             DiagnosticValue(status, "publisher_qos_valid") == "1" &&
+             DiagnosticValue(status, "output_publisher_count") == "1" &&
+             DiagnosticValue(status, "output_publisher_identity_valid") == "1" &&
+             DiagnosticValue(status, "output_publisher_type_valid") == "1";
+    };
+  const auto evidence_deadline = std::chrono::steady_clock::now() + 5s;
+  while (!diagnostic_authority_is_ready() &&
+    std::chrono::steady_clock::now() < evidence_deadline)
+  {
     executor.spin_some();
-    std::this_thread::sleep_for(5ms);
+    std::this_thread::sleep_for(1ms);
   }
+  ASSERT_TRUE(diagnostic_authority_is_ready()) <<
+    DiagnosticSummary(latest_diagnostic_status);
 
-  const auto publish_pose = [&pose_publisher, &source, &executor]() {
+  constexpr std::int64_t kPosePeriodNanoseconds = 8000000LL;
+  const auto pose_period = std::chrono::nanoseconds(kPosePeriodNanoseconds);
+  const auto first_pose_steady_time = std::chrono::steady_clock::now() + pose_period;
+  const std::int64_t first_pose_stamp_ns =
+    source->get_clock()->now().nanoseconds() + kPosePeriodNanoseconds;
+  std::size_t pose_index = 0U;
+  const auto publish_pose =
+    [&pose_publisher, &source, &executor, &pose_index, first_pose_steady_time,
+    first_pose_stamp_ns]()
+    {
+      const auto pose_offset =
+        std::chrono::nanoseconds(
+        static_cast<std::int64_t>(pose_index) * kPosePeriodNanoseconds);
+      const auto publish_deadline = first_pose_steady_time + pose_offset;
+      while (std::chrono::steady_clock::now() < publish_deadline) {
+        executor.spin_some();
+        std::this_thread::sleep_for(1ms);
+      }
+
       geometry_msgs::msg::PoseStamped pose;
-      pose.header.stamp = source->get_clock()->now();
+      pose.header.stamp = rclcpp::Time(
+        first_pose_stamp_ns + pose_offset.count(),
+        source->get_clock()->get_clock_type());
       pose.header.frame_id = "world";
       pose.pose.position.x = 1.0;
       pose.pose.position.y = 2.0;
       pose.pose.position.z = 3.0;
       pose.pose.orientation.w = 1.0;
       pose_publisher->publish(pose);
-      std::this_thread::sleep_for(1ms);
+      ++pose_index;
       executor.spin_some();
     };
-  const auto publish_batch = [&publish_pose]() {
-      publish_pose();
-      publish_pose();
-      std::this_thread::sleep_for(14ms);
-    };
-  for (std::size_t index = 0U; index < 50U; ++index) {
-    publish_batch();
+  for (std::size_t index = 0U; index < 119U; ++index) {
+    publish_pose();
   }
   EXPECT_FALSE(candidate.has_value());
 
-  for (std::size_t index = 0U; index < 150U && !candidate.has_value(); ++index) {
-    publish_batch();
-  }
-  for (std::size_t index = 0U; index < 30U && !candidate.has_value(); ++index) {
+  while (pose_index < 500U && !candidate.has_value()) {
     publish_pose();
-    std::this_thread::sleep_for(5ms);
   }
-  for (std::size_t index = 0U; index < 30U && !candidate.has_value(); ++index) {
+  const auto drain_deadline = std::chrono::steady_clock::now() + 150ms;
+  while (!candidate.has_value() && std::chrono::steady_clock::now() < drain_deadline) {
     executor.spin_some();
-    std::this_thread::sleep_for(5ms);
+    std::this_thread::sleep_for(1ms);
   }
 
-  ASSERT_TRUE(candidate.has_value());
+  ASSERT_TRUE(candidate.has_value()) << DiagnosticSummary(latest_diagnostic_status);
   EXPECT_EQ(candidate->header.frame_id, "mocap_world");
   EXPECT_EQ(candidate->semantic_child_frame, "base_link");
   EXPECT_DOUBLE_EQ(candidate->pose.position.x, 1.0);
@@ -158,6 +247,7 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   EXPECT_FALSE(candidate->capture_time_validated);
 
   (void)candidate_subscription;
+  (void)diagnostics_subscription;
 }
 
 }  // namespace
