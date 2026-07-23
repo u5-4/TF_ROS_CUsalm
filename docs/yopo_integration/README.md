@@ -3,8 +3,8 @@
 本目录是 YOPO、定位适配、SO3、MAVROS 与 PX4 实机集成阶段的主合同。
 合同基线标识为 `yopo_integration_20260723_v1`。
 
-当前状态是**需求已确认、文档内部一致性检查已完成、等待提交冻结、实现尚未开始**。
-本目录不构成飞行授权，也不表示任何目标接口已经通过实机验收。
+当前状态是**需求合同已冻结、YOPO 实现分支已建立、跨仓库版本清单正在采集、
+功能实现尚未开始**。本目录不构成飞行授权，也不表示任何目标接口已经通过实机验收。
 
 ## 文档导航
 
@@ -16,6 +16,7 @@
 | [ACCEPTANCE_CRITERIA.md](ACCEPTANCE_CRITERIA.md) | 各阶段通过条件和必须保留的证据 |
 | [TASKFLOW.md](TASKFLOW.md) | YOPO 阶段唯一任务状态来源 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 需求访谈中确认的架构决策与理由 |
+| [VERSION_MANIFEST.md](VERSION_MANIFEST.md) | 仓库、模型、Jetson、相机、MAVROS 与 PX4 版本基线 |
 
 ## 权威顺序
 
@@ -37,7 +38,7 @@
 - rosbag、模型权重和其他大型二进制证据不提交 Git；Git 只保存版本、摘要和 SHA-256。
 - 目标接口和已验收事实必须分开陈述，禁止用设计文档代替运行证据。
 
-## 首个执行动作
+## 当前执行动作
 
-在当前定位证据分支之上创建 `feat/yopo-integration-v1`，然后按照
-`TASKFLOW.md` 从文档复核、深度流验证和 MAVROS 外部视觉接口审计开始推进。
+完成 `VERSION_MANIFEST.md` 的 Jetson/PX4 实机字段采集并冻结 `YP-020`。在该任务
+通过前，不修改深度配置，也不开始 PX4 外部视觉或控制实现。

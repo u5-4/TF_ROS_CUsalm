@@ -21,9 +21,9 @@
 
 | ID | 任务 | 状态 | 依赖 | 完成证据 |
 | --- | --- | --- | --- | --- |
-| YP-000 | 复核并冻结本目录需求合同 | `IN_PROGRESS` | 用户确认 | 文档 review、commit hash |
-| YP-010 | 从定位证据分支创建 `feat/yopo-integration-v1` | `BLOCKED` | YP-000 | 分支起点 hash |
-| YP-020 | 固定跨仓库和 PX4/MAVROS 版本清单 | `BLOCKED` | YP-010 | version manifest |
+| YP-000 | 复核并冻结本目录需求合同 | `PASSED` | 用户确认 | `5f03815` |
+| YP-010 | 从定位证据分支创建 `feat/yopo-integration-v1` | `PASSED` | YP-000 | 起点 `5f03815`，远程分支已建立 |
+| YP-020 | 固定跨仓库和 PX4/MAVROS 版本清单 | `IN_PROGRESS` | YP-010 | `VERSION_MANIFEST.md`、实机采集输出 |
 | YP-100 | 在 bringup 中开启原生深度，保持 emitter 关闭 | `BLOCKED` | YP-020 | config diff、topic info |
 | YP-110 | 验证红外 90 Hz、深度质量和 cuVSLAM 无回归 | `BLOCKED` | YP-100 | Gate G2 报告 |
 | YP-120 | 深度不足时执行 emitter A/B | `BLOCKED` | YP-110 判定不足 | A/B 报告；不需要时标记 N/A 决策 |
