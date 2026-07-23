@@ -161,11 +161,11 @@ rosbag hash、分析报告、日期、模式、操作者和结果。
 [`DEPLOYMENT_ARCHITECTURE.md`](DEPLOYMENT_ARCHITECTURE.md)：
 
 - localization-runtime 独占 D435I，并包含 Isaac ROS、NITROS 和 cuVSLAM；
-- YOPO 使用宿主机独立 Conda 环境 `yopo`，当前源码位于
-  `/home/nvidia/catkin_ws/src/YOPO_ROS2`，并已完成基础部署和构建；
+- YOPO 使用宿主机 ROS 2 和 `/usr/bin/python3`，当前源码位于
+  `/home/nvidia/catkin_ws/src/YOPO_ROS2`，并已完成构建、CUDA 模型加载和被动冒烟；
 - MAVROS/PX4 链路和未来 control gateway 位于宿主或独立控制环境；
 - 环境之间只通过 ROS 2 DDS 和固定消息合同交互；
-- 禁止把 YOPO/PyTorch 依赖安装进 localization-runtime，也禁止让 YOPO 环境
+- 禁止把 YOPO/PyTorch 依赖安装进 localization-runtime，也禁止让 YOPO runtime
   直接打开 D435I。
 
 ## 6. 首版明确排除

@@ -100,10 +100,12 @@
 ## D-018：localization、YOPO 与 flight stack 保持运行环境隔离
 
 **决策：** localization-runtime 包含 RealSense、Isaac ROS、NITROS 和 cuVSLAM；
-YOPO 保持宿主机 Conda `yopo` 独立环境，源码位于
-`/home/nvidia/catkin_ws/src/YOPO_ROS2`；
+YOPO 保持宿主机独立运行时，源码位于
+`/home/nvidia/catkin_ws/src/YOPO_ROS2`，实测执行入口为 `/usr/bin/python3`；
 MAVROS/PX4 和控制 backend 位于宿主或独立控制环境。三者只通过 ROS 2 DDS 合同
 通信，不合并 Python、PyTorch、CUDA wheel 或容器动态库依赖。
+已创建的 Conda `yopo` 环境当前缺少 `torch`/`numpy`，且不在已安装
+ROS 2 `yopo_node` 的执行路径中；不对其重复安装 Jetson PyTorch。
 
 **理由：** 该拆分是为隔离已经识别的环境和依赖冲突，同时保证定位、规划与飞控
 可以分别升级、测试和回滚。单仓库中的 ROS package 组织不改变部署隔离。

@@ -2,8 +2,9 @@
 
 基线标识：`yopo_platform_baseline_20260723_v1`
 
-状态：`IN_PROGRESS`。本机可验证的仓库和文件已固定；Jetson、运行中 MAVROS 与
-PX4 飞控字段必须由目标实机重新采集后才能将 `YP-020` 标记为 `PASSED`。
+状态：`IN_PROGRESS`。YOPO 模型加载和宿主 MAVROS/PX4 版本已采集；
+修订后的 localization-runtime v2 和 YOPO runtime inventory v2 尚待采集和核对，
+完成后才能将 `YP-020` 标记为 `PASSED`。
 
 历史证据来源：`agent_merged_20260721.md`，SHA-256
 `b265514e9e92993cee81b32189778a74cfd7dac5587bb52886a891ce79752fa5`。
@@ -15,7 +16,7 @@ PX4 飞控字段必须由目标实机重新采集后才能将 `YP-020` 标记为
 | 组件 | 分支或版本 | Commit | 来源 | 状态 |
 | --- | --- | --- | --- | --- |
 | `TF_ROS_CUsalm` | `feat/yopo-integration-v1` | 首次实机采集 `ac69b196e1c098a5fbcb8e0076ce2d2966359496`；分支起点 `5f03815d840513799908559eb427077155079c6e` | `https://github.com/u5-4/TF_ROS_CUsalm.git` | Jetson 已验证 clean |
-| `YOPO_ROS2` | `jetson-passive-deployment` | `80c0569e4d1ed8ed8c885bc7df200b18b9881088` | `https://github.com/u5-4/YOPO_ROS2.git` | 宿主机已部署并构建，待独立环境复核 |
+| `YOPO_ROS2` | Jetson `ros2-humble`；Windows 审计分支 `jetson-passive-deployment` | `80c0569e4d1ed8ed8c885bc7df200b18b9881088` | `https://github.com/u5-4/YOPO_ROS2.git` | Jetson 已验证 clean，ROS packages 已安装 |
 | cuVSLAM 定制与 bringup | `u5-4/fcu-imu-cuvslam-integration` | `04d7b9cd1a4f6ebe324538a3892d32ccc794e650` | `https://github.com/u5-4/cuVSLAM.git` | Jetson 已验证 clean |
 | `isaac_ros_visual_slam` | package `3.2.6` | `e31f4cc1d41a329a01946e5fe63669f8b15da677` | NVIDIA Isaac ROS 3.2.15 审计副本 | Jetson commit 已验证；预期 wrapper patch 已应用，待 patch verifier 复核 |
 | `vrpn_client_ros` | package `0.2.2` | `1b9731c055c08d8496897108580534a80da0b158` | `https://github.com/u5-4/vrpn_client_ros2.git` | Jetson 已验证 clean |
@@ -33,8 +34,8 @@ YOPO 本体已经部署和构建。当前尚未解决的是历史 SO3 controller
 | 文件 | SHA-256 |
 | --- | --- |
 | `YOPO/saved/YOPO_1/epoch50.pth` | `09ec31094ed83e09702efc1facf18076564ebbe1afc164960c41036e16ba229f` |
-| `YOPO/config/traj_opt.yaml` | `aa5bcba43fadf733208ceadfd7a0a9bfbb72db85ae6b7d97f93a54c55e193801` |
-| `YOPO/requirements.txt` | `153e994e19e43e73cc3f33eff9251f612fb983dd90fd7655ad98dc7d3b149b1e` |
+| `YOPO/config/traj_opt.yaml` | `c8dae0ea9b21c60de9abce85e3ceecfbf0e3cf0ef56a5a8afab9743e788dc21f` |
+| `YOPO/requirements.txt` | `e5e8c547e3a038f74e9f182fc9518319bf46ba4b9fb7463b633cff3cf131f07f` |
 | `isaac_ros_yopo_bringup/launch/d435i_fcu_imu_cuvslam.launch.py` | `e272ff88df99668de3ddf8f0c597767be0331b5cafe9207a9166f8bc9afaa39d` |
 | `isaac_ros_yopo_bringup/config/d435i_243622070369_fcu_imu.yaml` | `934388fe191b53b1b71b96bc3a5600a9524357fc0c0a8cc7c0da3ffaeb2f4f92` |
 | `isaac_ros_yopo_bringup/config/px4_imu_noise_unvalidated.yaml` | `73328ada53105daf96af06dcc3e80edcfc9f9184ad67bca4e68e50d617062b9e` |
@@ -43,9 +44,15 @@ YOPO 本体已经部署和构建。当前尚未解决的是历史 SO3 controller
 YOPO 权重约 43 MiB，当前由 Git 跟踪。后续如果权重文件发生变化，即使文件名不变，
 也必须建立新的基线，不允许覆盖本表 hash。
 
+YOPO 文本文件使用 Git commit 内容计算规范化 SHA-256，不使用平台相关的工作树字节。
+对应 Git blob 分别为：模型 `17c1ea8da45c512a2472ec776805331866d01e02`、配置
+`6893372123e3f3b57a26c555e34be87169928837`、requirements
+`0c3f2ecb3ead0c771737dd567d7656b97d17a8fb`。此前 Windows 工作树 hash 因 CRLF/LF
+差异与 Jetson 不同，现已废止。
+
 ## 3. Jetson 与分层运行时基线
 
-部署不是单容器。localization-runtime、宿主 Conda `yopo` 环境和宿主 MAVROS/PX4
+部署不是单容器。localization-runtime、宿主 YOPO system-Python runtime 和宿主 MAVROS/PX4
 分别采集，详见 [`DEPLOYMENT_ARCHITECTURE.md`](DEPLOYMENT_ARCHITECTURE.md)。
 
 | 项目 | 已验证值 | 证据状态 |
@@ -56,19 +63,21 @@ YOPO 权重约 43 MiB，当前由 Git 跟踪。后续如果权重文件发生变
 | ROS | ROS 2 Humble | 本轮已复核 |
 | CUDA / cuDNN / TensorRT | CUDA 12.6.68；历史 cuDNN 9.3 / TensorRT 10.3 | CUDA 已于本轮复核；其余待复核 |
 | localization 容器 PyTorch | `2.5.0a0+872d972e41.nv24.08`，CUDA 可用 | 仅为环境事实，不代表 YOPO runtime |
-| YOPO runtime | 宿主 Conda `yopo`，路径 `/home/nvidia/miniconda3/envs/yopo` | 已部署和构建，版本待独立采集 |
-| YOPO source | `/home/nvidia/catkin_ws/src/YOPO_ROS2` | 已确认，待 commit/hash 复核 |
-| Docker | 29.4.3 | 2026-07-21 历史证据已确认，待本轮复核 |
+| YOPO runtime | `/usr/bin/python3` (Python 3.10)；PyTorch `2.11.0`；NumPy `1.21.5`；CUDA `12.6` | 入口 shebang、全部 import、CUDA Orin 和模型 warm-up 已通过 |
+| 历史 Conda `yopo` | Python 3.8.20，缺少 `torch`/`numpy` | 不在当前 `yopo_node` 执行路径，不作为生产运行时 |
+| YOPO source | `/home/nvidia/catkin_ws/src/YOPO_ROS2` | `ros2-humble@80c0569`，clean |
+| YOPO ROS install | `/home/nvidia/catkin_ws/install/yopo_planner`、`quadrotor_msgs` | 已构建安装 |
+| Docker | 29.4.3 | 本轮宿主复核 |
 | NVIDIA Container Toolkit | 1.16.2 | 2026-07-21 历史证据已确认，待本轮复核 |
 | RMW implementation | `rmw_fastrtps_cpp` | 本轮已复核 |
 | ROS Domain | `42` | 本轮已复核 |
 | cuVSLAM | Isaac ROS Visual SLAM `3.2.6` | Jetson package/commit 待复核 |
-| MAVROS | `2.14.0` | exact Debian version 待采集 |
-| `mavros_msgs` | 终端曾显示 `2.14.0-1jammy.20260605.140341` | 待重新采集并固化 |
+| MAVROS | `2.14.0-1jammy.20260608.191037` | 本轮宿主复核 |
+| `mavros_msgs` | `2.14.0-1jammy.20260605.140341` | 本轮宿主复核 |
 
 第一次采集所在 localization 容器没有 `mavros`、`mavros_msgs` 或 YOPO 源码，符合
 部署隔离设计，不构成缺包。MAVROS/PX4 版本和 vehicle identity 必须在宿主环境采集；
-YOPO commit、权重和 Python 版本必须在宿主 Conda `yopo` 环境采集。禁止为了完成
+YOPO commit、权重和 Python 版本必须在宿主实际 `yopo_node` 执行环境采集。禁止为了完成
 清单而把这些依赖安装进 localization-runtime。
 
 历史容器恢复锚点：
@@ -112,10 +121,10 @@ launch 中并行时仍满足频率、同步、深度有效率、USB 和资源门
 
 | 项目 | 值 | 状态 |
 | --- | --- | --- |
-| 飞控硬件 | 待采集 | `PENDING` |
-| PX4 flight software version | 待采集 | `PENDING` |
-| PX4 git/firmware hash | 待采集 | `PENDING` |
-| MAVLink vehicle identity | 待采集 | `PENDING` |
+| 飞控硬件 | MAVLink vendor `7052`、product `54`、board version `54` | 已采集 |
+| PX4 flight software version | packed `17761280` / `0x010F0400`，版本字段为 1.15.4 | 已采集 |
+| PX4 custom version | `99c40407ff000000` | 已采集，保持 MAVROS 原始表达 |
+| MAVLink vehicle identity | sysid `1`、compid `1`、autopilot `12`、type `2` | 已采集 |
 | `MPC_THR_HOVER` | `0.60` | 用户确认；实际读取延后至 SO3/控制台架门禁 |
 | 外部视觉 EKF 参数 | 不属于 `YP-020` | 在 `YP-200` 按实际接口读取必要子集 |
 | OFFBOARD loss 参数 | 不属于 `YP-020` | 在 `YP-420` 读取必要子集 |
@@ -135,16 +144,16 @@ bash tools/collect_yopo_platform_baseline.sh \
   | tee /workspaces/isaac_ros-dev/localization_runtime_baseline_20260723_v2.txt
 ```
 
-Jetson 宿主机的 YOPO Conda 环境：
+Jetson 宿主机的 YOPO system-Python runtime：
 
 ```bash
-source /home/nvidia/miniconda3/etc/profile.d/conda.sh
-conda activate yopo
 export ROS_DOMAIN_ID=42
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+source /opt/ros/humble/setup.bash
+source /home/nvidia/catkin_ws/install/setup.bash
 
 bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_yopo_runtime_baseline.sh \
-  | tee /home/nvidia/yopo_runtime_baseline_20260723.txt
+  | tee /home/nvidia/yopo_runtime_baseline_20260723_v2.txt
 ```
 
 Jetson 宿主机、MAVROS 已启动时：
@@ -161,7 +170,7 @@ bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_
 
 1. Jetson 实际仓库 commit 与第 1 节一致；
 2. 各运行环境中的相关工作区均为 clean，或每个差异都有固定 patch；
-3. 宿主 `yopo` 环境中的 YOPO 权重和配置 hash 与第 2 节一致；
+3. 宿主 `yopo_node` shebang 为 `/usr/bin/python3`，权重和配置 hash 与第 2 节一致；
 4. D435I 序列号与固件一致；
 5. 宿主 MAVROS、`mavros_msgs` 和 PX4 固件身份完整；
 6. 三份采集输出分别生成 SHA-256，并在本表记录路径和 hash。
@@ -171,8 +180,10 @@ bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_
 | 字段 | 值 |
 | --- | --- |
 | localization-runtime 输出与 SHA-256 | `PENDING_V2` |
-| YOPO runtime 输出与 SHA-256 | `PENDING` |
-| host flight stack 输出与 SHA-256 | `PENDING` |
+| YOPO runtime inventory v1 | `/home/nvidia/yopo_runtime_baseline_20260723.txt`；`3c5940b7487ae55ffeaef1962d10096d169f8bbbc634080b91fb5963e1dfc3ed`；Conda 采集上下文，保留为历史证据 |
+| YOPO runtime inventory v2 | `PENDING` |
+| YOPO 模型冒烟输出与 SHA-256 | `/home/nvidia/yopo_model_smoke_20260723.txt`；`909f0d839ddbdb64be7a1a9d44495139beaf86154f257d3a8fc615d3b8615608` |
+| host flight stack 输出与 SHA-256 | `/home/nvidia/host_flight_stack_baseline_20260723.txt`；`fe9c7c5694d146879d8834c8c67467952d79a8e9c115b070480c3886e424231d` |
 | 核对人 | `PENDING` |
 | 核对结果 | `PENDING` |
 | `YP-020` 最终状态 | `IN_PROGRESS` |
@@ -188,3 +199,10 @@ bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_
 | 已完成 | localization 容器的 Jetson/L4T、Ubuntu、CUDA、ROS/RMW、主要仓库 commit、librealsense |
 | 符合设计的隔离项 | localization 容器内没有 YOPO、MAVROS 和 `mavros_msgs` |
 | 缺口 | D435I busy；Visual SLAM applied patch 待复核；YOPO runtime 与 host flight stack 尚未独立采集 |
+
+### 7.2 分层采集结果
+
+| Scope | 结果 | 结论 |
+| --- | --- | --- |
+| YOPO runtime | `PASS_MODEL_LOAD` | `/usr/bin/python3`；PyTorch 2.11.0/CUDA 12.6 on Orin；官方 epoch-50 权重被动加载和 warm-up 通过；控制输出关闭 |
+| host flight stack | `PASS_VERSION_INVENTORY` | USB3 5000M、Docker 镜像、MAVROS packages、PX4 connected/未解锁和 firmware identity 已固定 |

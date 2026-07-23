@@ -33,7 +33,8 @@
 | YP-230 | 实现 `localization_output_gateway` | `BLOCKED` | YP-200、YP-220 | Gate G3 报告 |
 | YP-240 | 实现 `yopo_state_bridge` | `BLOCKED` | YP-230 | frame/twist/authority 测试 |
 | YP-250 | 实现两个互斥 primary launch | `BLOCKED` | YP-220、YP-230、YP-240 | launch authority 测试 |
-| YP-300 | 固定 YOPO ROS 2 参数、模型、深度和状态话题 | `BLOCKED` | YP-110、YP-240 | config hash、模型 hash |
+| YP-290 | 确认 YOPO 实际 Python 推理环境并完成模型加载冒烟 | `PASSED` | YP-010 | system Python/CUDA 证据；`yopo_model_smoke_20260723.txt` |
+| YP-300 | 固定 YOPO ROS 2 参数、模型、深度和状态话题 | `BLOCKED` | YP-110、YP-240、YP-290 | config hash、模型 hash |
 | YP-310 | 完成 YOPO 10 分钟被动规划 | `BLOCKED` | YP-300 | Gate G4 报告和 rosbag |
 | YP-400 | 移植最小 ROS 2 C++ SO3 core | `BLOCKED` | YP-310 | 单元测试、接口测试 |
 | YP-410 | 实现可替换 MAVROS `AttitudeTarget` backend | `BLOCKED` | YP-400、YP-200 | type-mask/符号/限幅测试 |
@@ -52,8 +53,9 @@
 `runtime_contract=FAIL`。它证明了工具链能够读完固定证据并识别启动边界 orphan、
 历史 clock counter 和 mocap 缺口；它不是 Gate G3 或飞行授权证据。
 
-YOPO 已在 Jetson 宿主机 Conda `yopo` 环境完成基础部署和构建，源码位于
-`/home/nvidia/catkin_ws/src/YOPO_ROS2`。当前未解决项是 `YP-400/410` 的 ROS 2
+YOPO 已在 Jetson 宿主机完成构建，源码位于
+`/home/nvidia/catkin_ws/src/YOPO_ROS2`。已安装节点使用 `/usr/bin/python3`，
+Jetson CUDA 12.6 PyTorch 模型加载和被动 warm-up 已通过。当前未解决项是 `YP-400/410` 的 ROS 2
 SO3 core 与 MAVROS 控制 backend，不得把它误记为 YOPO 未部署。
 
 ## 4. 更新模板
