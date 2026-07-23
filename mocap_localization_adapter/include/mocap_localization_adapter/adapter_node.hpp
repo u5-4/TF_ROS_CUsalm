@@ -58,7 +58,9 @@ private:
     const rclcpp::MessageInfo & message_info);
   void OnDiagnosticTimer();
 
-  bool ValidateMessagePublisherLocked(const rclcpp::MessageInfo & message_info);
+  bool ValidateMessagePublisherLocked(
+    const rclcpp::MessageInfo & message_info,
+    const SteadyTime & now);
   void UpdatePublisherEvidenceLocked();
   void UpdateOutputPublisherEvidenceLocked();
   void UpdatePoseRateLocked(std::int64_t stamp_ns);

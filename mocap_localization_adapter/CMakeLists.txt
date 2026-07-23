@@ -110,6 +110,42 @@ if(BUILD_TESTING)
       ENVIRONMENT "ROS_DOMAIN_ID=230;ROS_LOCALHOST_ONLY=1"
     )
   endif()
+
+  ament_add_gtest(
+    test_input_authority_lifecycle
+    test/test_input_authority_lifecycle.cpp
+  )
+  if(TARGET test_input_authority_lifecycle)
+    target_link_libraries(test_input_authority_lifecycle ${PROJECT_NAME}_core)
+    ament_target_dependencies(test_input_authority_lifecycle
+      diagnostic_msgs
+      geometry_msgs
+      localization_adapter_interfaces
+      rclcpp
+    )
+    set_tests_properties(test_input_authority_lifecycle PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=231;ROS_LOCALHOST_ONLY=1"
+      TIMEOUT 60
+    )
+  endif()
+
+  ament_add_gtest(
+    test_input_authority_timeout
+    test/test_input_authority_timeout.cpp
+  )
+  if(TARGET test_input_authority_timeout)
+    target_link_libraries(test_input_authority_timeout ${PROJECT_NAME}_core)
+    ament_target_dependencies(test_input_authority_timeout
+      diagnostic_msgs
+      geometry_msgs
+      localization_adapter_interfaces
+      rclcpp
+    )
+    set_tests_properties(test_input_authority_timeout PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=232;ROS_LOCALHOST_ONLY=1"
+      TIMEOUT 20
+    )
+  endif()
 endif()
 
 ament_package()

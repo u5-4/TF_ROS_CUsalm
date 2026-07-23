@@ -717,6 +717,8 @@ README 暂不提供生产启动命令。只有代码、配置、单元测试、r
 
 当前 adapter 能绑定运行时 publisher 的 FQN、GID、消息类型，以及 endpoint graph 能可靠提供的 QoS 证据。Reliability 必须为 reliable，durability 必须为 volatile；history 只接受明确的 keep-last，或 Humble/Fast DDS introspection 的 `UNKNOWN`。`UNKNOWN` 仅表示 RMW 未报告，不能证明上游确实使用 KeepLast，diagnostics 必须将该回退显式报告。该回退只允许用于当前 shadow 阶段；`mocap_primary` 或任何 PX4 输出阶段必须改用受 GID 绑定的上游 manifest/固定配置证据，不得继续把 `UNKNOWN` 当作充分证据。VRPN 进程尚未发布自身 git revision、配置 hash 或 `use_server_time` 诊断证据，因此消息中的 revision/time 字段使用 `expected_*` 命名，并固定携带 `source_configuration_validated=false`；这项状态在增加上游 manifest 前不得升级。
 
+Humble/Fast DDS 可能先交付 pose 回调，随后才在 graph introspection 中补齐该 publisher 的 FQN、类型和 QoS。adapter 在首次完成“唯一 GID、FQN、类型和 QoS”联合验证前保持最长 10 秒的 startup discovery 状态：暂不完整或不匹配的 endpoint 证据只会拒绝输入并保持影子输出为零，不会被误判为运行期权限篡改；超过该窗口仍存在错误身份、类型、QoS 或重复 publisher 时永久锁存。首次合法消息完成 GID 绑定后，合同立即切换为严格 epoch：不同消息 GID、重复 publisher、FQN、类型或 QoS 改变仍永久锁存，必须重启 adapter。该 startup discovery 宽限不构成对错误来源的信任，也不能用于 `mocap_primary` 或 PX4 写路径。
+
 合同 ID `droneyee207_mocap_shadow_20260722_v2` 专门标识上述 shadow-only RMW history 回退语义；旧的无后缀 ID 对应严格要求 graph 报告 keep-last 的已废弃行为，两者不得混用于同一份录包或验收证据。
 
 ### 18.3 目标运行模式

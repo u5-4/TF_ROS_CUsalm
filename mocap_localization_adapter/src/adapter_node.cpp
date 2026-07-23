@@ -245,7 +245,7 @@ void MocapLocalizationAdapter::OnPose(
   ++received_;
   last_actual_frame_ = message->header.frame_id;
 
-  if (!ValidateMessagePublisherLocked(message_info)) {
+  if (!ValidateMessagePublisherLocked(message_info, now)) {
     ++rejected_;
     last_pose_valid_ = false;
     return;
@@ -444,7 +444,8 @@ void MocapLocalizationAdapter::OnPose(
 }
 
 bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
-  const rclcpp::MessageInfo & message_info)
+  const rclcpp::MessageInfo & message_info,
+  const SteadyTime & now)
 {
   PublisherGid message_gid{};
   const auto & raw_gid = message_info.get_rmw_message_info().publisher_gid;
@@ -485,15 +486,28 @@ bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
     actual_qos_depth_ = qos.depth;
     publisher_qos_valid_ = ShadowInputPublisherQosIsCompatible(qos);
   }
+  const double startup_age = std::chrono::duration<double>(now - started_at_).count();
+  const bool startup_discovery_open =
+    health_gate_.State() == HealthState::kStarting &&
+    startup_age <= config_.health.startup_timeout_sec;
   if (matching_gid_count == 0U) {
-    health_gate_.MarkTransient("POSE_PUBLISHER_GID_NOT_DISCOVERED");
+    if (startup_discovery_open) {
+      health_gate_.MarkStarting("WAITING_FOR_POSE_PUBLISHER_GID");
+    } else {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_GID_NOT_DISCOVERED");
+    }
     return false;
   }
   if (publisher_count_ != 1U || matching_gid_count != 1U ||
     !publisher_identity_valid_ || !publisher_type_valid_ || !publisher_qos_valid_)
   {
-    ++publisher_authority_violation_;
-    health_gate_.MarkLatched("POSE_PUBLISHER_AUTHORITY_INVALID");
+    if (startup_discovery_open) {
+      health_gate_.MarkStarting("WAITING_FOR_POSE_PUBLISHER_AUTHORITY");
+    } else {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_AUTHORITY_INVALID");
+    }
     return false;
   }
   if (!bound_publisher_gid_.has_value()) {
@@ -611,6 +625,19 @@ bool MocapLocalizationAdapter::InputIsHealthyLocked(
     *reason = "SIM_TIME_ENABLED";
     return false;
   }
+  if (!bound_publisher_gid_.has_value()) {
+    const bool publisher_authority_incomplete =
+      publisher_count_ != 1U || !publisher_identity_valid_ ||
+      !publisher_type_valid_ || !publisher_qos_valid_;
+    if (publisher_count_ == 0U) {
+      *reason = "WAITING_FOR_POSE_PUBLISHER";
+    } else if (publisher_authority_incomplete) {
+      *reason = "WAITING_FOR_POSE_PUBLISHER_AUTHORITY";
+    } else {
+      *reason = "WAITING_FOR_POSE_PUBLISHER_GID";
+    }
+    return false;
+  }
   if (publisher_count_ == 0U) {
     *reason = "WAITING_FOR_POSE_PUBLISHER";
     return false;
@@ -619,10 +646,6 @@ bool MocapLocalizationAdapter::InputIsHealthyLocked(
     !publisher_qos_valid_)
   {
     *reason = "POSE_PUBLISHER_AUTHORITY_INVALID";
-    return false;
-  }
-  if (!bound_publisher_gid_.has_value()) {
-    *reason = "WAITING_FOR_POSE_PUBLISHER_GID";
     return false;
   }
   if (output_publisher_count_ == 0U) {
@@ -705,17 +728,31 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   const bool shadow_output_publisher_authority_invalid =
     output_publisher_count_ == 1U &&
     (!output_publisher_identity_valid_ || !output_publisher_type_valid_);
+  const bool input_publisher_bound = bound_publisher_gid_.has_value();
+  const double startup_age = std::chrono::duration<double>(now - started_at_).count();
+  const bool startup_discovery_open =
+    !input_publisher_bound && health_gate_.State() == HealthState::kStarting &&
+    startup_age <= config_.health.startup_timeout_sec;
+  const bool input_authority_enforced = input_publisher_bound || !startup_discovery_open;
+  const bool input_publisher_not_unique =
+    input_authority_enforced && publisher_count_ > 1U;
+  const bool input_publisher_identity_mismatch =
+    input_authority_enforced && publisher_count_ == 1U && !publisher_identity_valid_;
+  const bool input_publisher_type_mismatch =
+    input_authority_enforced && publisher_count_ == 1U && !publisher_type_valid_;
+  const bool input_publisher_qos_mismatch =
+    input_authority_enforced && publisher_count_ == 1U && !publisher_qos_valid_;
 
-  if (publisher_count_ > 1U) {
+  if (input_publisher_not_unique) {
     ++publisher_authority_violation_;
     health_gate_.MarkLatched("POSE_PUBLISHER_NOT_UNIQUE");
-  } else if (publisher_count_ == 1U && !publisher_identity_valid_) {
+  } else if (input_publisher_identity_mismatch) {
     ++publisher_authority_violation_;
     health_gate_.MarkLatched("POSE_PUBLISHER_IDENTITY_MISMATCH");
-  } else if (publisher_count_ == 1U && !publisher_type_valid_) {
+  } else if (input_publisher_type_mismatch) {
     ++publisher_authority_violation_;
     health_gate_.MarkLatched("POSE_PUBLISHER_TYPE_MISMATCH");
-  } else if (publisher_count_ == 1U && !publisher_qos_valid_) {
+  } else if (input_publisher_qos_mismatch) {
     ++publisher_authority_violation_;
     health_gate_.MarkLatched("POSE_PUBLISHER_QOS_MISMATCH");
   } else if (output_publisher_count_ > 1U) {
@@ -729,7 +766,6 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   if (health_gate_.State() != HealthState::kLatchedFault) {
     std::string reason;
     if (!InputIsHealthyLocked(now, &reason)) {
-      const double startup_age = std::chrono::duration<double>(now - started_at_).count();
       const bool waiting = reason.rfind("WAITING_FOR_", 0U) == 0U;
       if (waiting && startup_age <= config_.health.startup_timeout_sec &&
         health_gate_.State() == HealthState::kStarting)
