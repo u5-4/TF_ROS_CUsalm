@@ -195,7 +195,12 @@ StampPairingSummary PairExactStampMultisets(
 
   for (const auto & entry : remaining_shadow) {
     summary.shadow_without_raw += entry.second;
+    summary.orphan_shadow_stamps_ns.insert(
+      summary.orphan_shadow_stamps_ns.end(), entry.second, entry.first);
   }
+  std::sort(
+    summary.orphan_shadow_stamps_ns.begin(),
+    summary.orphan_shadow_stamps_ns.end());
   if (summary.valid_raw_stamps > 0U) {
     summary.raw_coverage_ratio = static_cast<double>(summary.matched) /
       static_cast<double>(summary.valid_raw_stamps);
@@ -228,6 +233,20 @@ CounterSeriesSummary SummarizeCounterSeries(
     summary.delta_without_reset = values.back() - values.front();
   }
   return summary;
+}
+
+CounterSeriesState ClassifyCounterSeries(const CounterSeriesSummary & summary)
+{
+  if (summary.resets > 0U) {
+    return CounterSeriesState::kReset;
+  }
+  if (summary.delta_without_reset.value_or(0U) > 0U) {
+    return CounterSeriesState::kIncreased;
+  }
+  if (summary.first.value_or(0U) > 0U) {
+    return CounterSeriesState::kPreexistingNonzero;
+  }
+  return CounterSeriesState::kClean;
 }
 
 }  // namespace bag_contract_probe

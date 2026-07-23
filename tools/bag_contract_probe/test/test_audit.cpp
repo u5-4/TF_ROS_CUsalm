@@ -14,6 +14,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
 
@@ -201,21 +202,47 @@ TEST(DiagnosticAudit, RejectsUnhealthyAlignedImuAndBrokenCounterInvariant)
   EXPECT_EQ(audit.aligned_imu_diagnostics.invariant_violations, 1U);
 }
 
-TEST(DiagnosticAudit, RejectsPreexistingNonzeroAlignedImuCounter)
+TEST(DiagnosticAudit, PreservesPreexistingAlignedImuCounterOutsideStaticContract)
 {
   AuditData audit;
   auto status = HealthyAlignedImuStatus();
   for (auto & value : status.values) {
     if (value.key == "received") {
       value.value = "101";
-    } else if (value.key == "zero_stamp") {
+    } else if (value.key == "clock_domain_mismatch") {
       value.value = "1";
     }
   }
   audit.ObserveDiagnostics(DiagnosticMessage(status), 100000000025LL);
 
-  EXPECT_EQ(audit.aligned_imu_diagnostics.contract_mismatches, 1U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.samples, 1U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.malformed_samples, 0U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.contract_mismatches, 0U);
+  ASSERT_EQ(audit.aligned_imu_diagnostics.counters.at("clock_domain_mismatch").size(), 1U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.counters.at("clock_domain_mismatch").front(), 1U);
   EXPECT_EQ(audit.aligned_imu_diagnostics.invariant_violations, 0U);
+}
+
+TEST(DiagnosticAudit, RejectsMissingOrNonnumericAlignedImuCountersAsMalformed)
+{
+  AuditData audit;
+  auto status = HealthyAlignedImuStatus();
+  status.values.erase(
+    std::remove_if(
+      status.values.begin(), status.values.end(),
+      [](const KeyValue & value) {return value.key == "duplicate";}),
+    status.values.end());
+  for (auto & value : status.values) {
+    if (value.key == "nonmonotonic") {
+      value.value = "not-a-number";
+    }
+  }
+  audit.ObserveDiagnostics(DiagnosticMessage(status), 100000000025LL);
+
+  EXPECT_EQ(audit.aligned_imu_diagnostics.malformed_samples, 1U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.contract_mismatches, 0U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.counters.count("duplicate"), 0U);
+  EXPECT_EQ(audit.aligned_imu_diagnostics.counters.count("nonmonotonic"), 0U);
 }
 
 TEST(DiagnosticAudit, DoesNotConflateMissingCounterWithDuplicateKey)

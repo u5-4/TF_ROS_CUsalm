@@ -52,6 +52,7 @@ struct AnalysisOutcome
   std::filesystem::path summary_path;
   std::filesystem::path topic_statistics_path;
   std::filesystem::path missing_intervals_path;
+  std::filesystem::path orphan_shadows_path;
   std::filesystem::path diagnostic_statuses_path;
   std::filesystem::path diagnostic_counters_path;
   std::filesystem::path findings_path;

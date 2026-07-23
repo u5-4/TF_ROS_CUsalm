@@ -64,7 +64,7 @@ namespace fs = std::filesystem;
 
 constexpr char kAnalysisContractId[] =
   "dual_shadow_transport_audit_20260723_v1";
-constexpr char kAnalyzerVersion[] = "bag_contract_probe_0.1.0";
+constexpr char kAnalyzerVersion[] = "bag_contract_probe_0.2.0";
 constexpr char kExpectedMetadataSha256[] =
   "938ae8784f3401c057d27d904b21dcd71b9d1e092b45fe970efb07c45f303dd4";
 constexpr char kExpectedDatabaseSha256[] =
@@ -73,6 +73,21 @@ constexpr std::int64_t kExpectedBagStartNs = 1784776014459438325LL;
 constexpr std::uint64_t kExpectedBagDurationNs = 1799328205027U;
 constexpr std::uint64_t kExpectedBagMessageCount = 1729830U;
 constexpr double kMaximumEvidenceEdgeGapSec = 2.5;
+constexpr std::int64_t kMaximumEvidenceEdgeGapNs = 2500000000LL;
+constexpr std::int64_t kMaximumDiagnosticAgeNs = 500000000LL;
+
+struct OrphanShadowRecord
+{
+  std::int64_t header_stamp_ns{0};
+  std::optional<std::int64_t> bag_stamp_ns;
+  std::string evidence_position;
+};
+
+struct MocapIntervalDiagnostics
+{
+  std::map<std::string, std::uint64_t> health_states;
+  std::map<std::string, std::uint64_t> reason_codes;
+};
 
 struct ExpectedTopic
 {
@@ -545,6 +560,111 @@ std::pair<std::int64_t, std::int64_t> PinnedEvidenceWindow()
     kExpectedBagStartNs + static_cast<std::int64_t>(kExpectedBagDurationNs)};
 }
 
+std::string ClassifyEvidencePosition(
+  const std::optional<std::int64_t> bag_stamp_ns,
+  const std::pair<std::int64_t, std::int64_t> & evidence_window)
+{
+  if (!bag_stamp_ns.has_value()) {
+    return "UNMAPPED";
+  }
+  if (bag_stamp_ns.value() <= evidence_window.first + kMaximumEvidenceEdgeGapNs) {
+    return "START_EDGE";
+  }
+  if (bag_stamp_ns.value() >= evidence_window.second - kMaximumEvidenceEdgeGapNs) {
+    return "END_EDGE";
+  }
+  return "INTERIOR";
+}
+
+std::vector<OrphanShadowRecord> BuildOrphanShadowRecords(
+  const detail::AuditData & audit,
+  const StampPairingSummary & pairing)
+{
+  std::map<std::int64_t, std::size_t> remaining;
+  for (const std::int64_t stamp_ns : pairing.orphan_shadow_stamps_ns) {
+    ++remaining[stamp_ns];
+  }
+  std::map<std::int64_t, std::size_t> raw_counts;
+  std::map<std::int64_t, std::size_t> shadow_counts;
+  for (const std::int64_t stamp_ns : audit.raw_mocap_stamps_ns) {
+    if (remaining.count(stamp_ns) > 0U) {
+      ++raw_counts[stamp_ns];
+    }
+  }
+  for (const std::int64_t stamp_ns : audit.shadow_stamps_ns) {
+    if (remaining.count(stamp_ns) > 0U) {
+      ++shadow_counts[stamp_ns];
+    }
+  }
+  std::set<std::int64_t> ambiguous_stamps;
+  for (const auto & entry : remaining) {
+    const auto raw = raw_counts.find(entry.first);
+    const auto shadow = shadow_counts.find(entry.first);
+    if (raw != raw_counts.end() && raw->second > 0U &&
+      shadow != shadow_counts.end() && shadow->second > entry.second)
+    {
+      ambiguous_stamps.insert(entry.first);
+    }
+  }
+
+  std::vector<OrphanShadowRecord> records;
+  records.reserve(pairing.orphan_shadow_stamps_ns.size());
+  const auto stream = audit.streams.find(
+    "/localization/shadow/mocap/assumed_base_pose");
+  if (stream != audit.streams.end()) {
+    const std::size_t samples = std::min(
+      stream->second.header_stamps_ns.size(), stream->second.bag_stamps_ns.size());
+    const auto evidence_window = PinnedEvidenceWindow();
+    for (std::size_t index = 0U; index < samples; ++index) {
+      const std::int64_t header_stamp_ns = stream->second.header_stamps_ns[index];
+      const auto candidate = remaining.find(header_stamp_ns);
+      if (candidate == remaining.end() || candidate->second == 0U) {
+        continue;
+      }
+      if (ambiguous_stamps.count(header_stamp_ns) > 0U) {
+        continue;
+      }
+      const std::int64_t bag_stamp_ns = stream->second.bag_stamps_ns[index];
+      records.push_back(
+        OrphanShadowRecord{
+          header_stamp_ns, bag_stamp_ns,
+          ClassifyEvidencePosition(bag_stamp_ns, evidence_window)});
+      --candidate->second;
+    }
+  }
+
+  for (const auto & entry : remaining) {
+    const std::string position = ambiguous_stamps.count(entry.first) > 0U ?
+      "AMBIGUOUS_DUPLICATE_STAMP" : "UNMAPPED";
+    for (std::size_t count = 0U; count < entry.second; ++count) {
+      records.push_back(
+        OrphanShadowRecord{entry.first, std::nullopt, position});
+    }
+  }
+  std::sort(
+    records.begin(), records.end(),
+    [](const OrphanShadowRecord & left, const OrphanShadowRecord & right) {
+      if (left.header_stamp_ns != right.header_stamp_ns) {
+        return left.header_stamp_ns < right.header_stamp_ns;
+      }
+      if (left.bag_stamp_ns.has_value() != right.bag_stamp_ns.has_value()) {
+        return left.bag_stamp_ns.has_value();
+      }
+      return left.bag_stamp_ns.value_or(0) < right.bag_stamp_ns.value_or(0);
+    });
+  return records;
+}
+
+std::map<std::string, std::uint64_t> CountOrphanPositions(
+  const std::vector<OrphanShadowRecord> & records)
+{
+  std::map<std::string, std::uint64_t> counts;
+  for (const auto & record : records) {
+    ++counts[record.evidence_position];
+  }
+  return counts;
+}
+
 void CheckBagStampContracts(
   detail::AuditData * audit,
   const std::pair<std::int64_t, std::int64_t> & evidence_window)
@@ -596,22 +716,46 @@ void CheckCounterSeries(
 {
   for (const auto & entry : counters) {
     const CounterSeriesSummary summary = SummarizeCounterSeries(entry.second);
-    if (summary.resets > 0U) {
+    const CounterSeriesState state = ClassifyCounterSeries(summary);
+    if (state == CounterSeriesState::kReset) {
       AddFinding(
         audit, detail::FindingSeverity::kFail, "DIAGNOSTIC_COUNTER_RESET",
         source + " key=" + entry.first + " resets=" +
         std::to_string(summary.resets));
       continue;
     }
+    const std::uint64_t first = summary.first.value_or(0U);
     const std::uint64_t delta = summary.delta_without_reset.value_or(0U);
-    if (delta > 0U && fail_on_increment.count(entry.first) > 0U) {
+    if (state == CounterSeriesState::kIncreased &&
+      fail_on_increment.count(entry.first) > 0U)
+    {
       AddFinding(
         audit, detail::FindingSeverity::kFail, "DIAGNOSTIC_FAILURE_COUNTER_INCREASED",
-        source + " key=" + entry.first + " delta=" + std::to_string(delta));
-    } else if (delta > 0U && review_on_increment.count(entry.first) > 0U) {
+        source + " key=" + entry.first + " first_left_censored=" +
+        std::to_string(first) + " delta=" + std::to_string(delta));
+    } else if (state == CounterSeriesState::kPreexistingNonzero &&
+      fail_on_increment.count(entry.first) > 0U)
+    {
+      AddFinding(
+        audit, detail::FindingSeverity::kFail,
+        "DIAGNOSTIC_FAILURE_COUNTER_PREEXISTING",
+        source + " key=" + entry.first + " first_left_censored=" +
+        std::to_string(first) + " delta=0");
+    } else if (state == CounterSeriesState::kIncreased &&
+      review_on_increment.count(entry.first) > 0U)
+    {
       AddFinding(
         audit, detail::FindingSeverity::kReview, "DIAGNOSTIC_WARNING_COUNTER_INCREASED",
-        source + " key=" + entry.first + " delta=" + std::to_string(delta));
+        source + " key=" + entry.first + " first_left_censored=" +
+        std::to_string(first) + " delta=" + std::to_string(delta));
+    } else if (state == CounterSeriesState::kPreexistingNonzero &&
+      review_on_increment.count(entry.first) > 0U)
+    {
+      AddFinding(
+        audit, detail::FindingSeverity::kReview,
+        "DIAGNOSTIC_WARNING_COUNTER_PREEXISTING",
+        source + " key=" + entry.first + " first_left_censored=" +
+        std::to_string(first) + " delta=0");
     }
   }
 }
@@ -695,9 +839,12 @@ void FinalizeAudit(detail::AuditData * audit)
   const StampPairingSummary mocap_pairing = PairExactStampMultisets(
     audit->raw_mocap_stamps_ns, audit->shadow_stamps_ns);
   if (mocap_pairing.shadow_without_raw > 0U) {
+    const auto orphan_records = BuildOrphanShadowRecords(*audit, mocap_pairing);
     AddFinding(
       audit, detail::FindingSeverity::kFail, "SHADOW_WITHOUT_RAW_STAMP",
-      "orphan shadow samples=" + std::to_string(mocap_pairing.shadow_without_raw));
+      "orphan shadow samples=" + std::to_string(mocap_pairing.shadow_without_raw) +
+      " positions=" + JoinCounts(CountOrphanPositions(orphan_records)) +
+      " report=mocap_orphan_shadows.csv");
   }
   if (mocap_pairing.raw_without_shadow > 0U) {
     AddFinding(
@@ -962,7 +1109,6 @@ std::string ClassifyMissingInterval(
     }
   }
 
-  constexpr std::int64_t kMaximumDiagnosticAgeNs = 500000000LL;
   const detail::MocapHealthObservation * latest_at_start = nullptr;
   for (const auto & observation : audit.mocap_diagnostics.health_observations) {
     if (observation.header_stamp_ns <= 0 ||
@@ -1016,6 +1162,37 @@ std::string ClassifyMissingInterval(
   return "NONHEALTHY_OR_RECOVERING";
 }
 
+MocapIntervalDiagnostics SummarizeIntervalDiagnostics(
+  const detail::AuditData & audit,
+  const MissingStampInterval & interval)
+{
+  MocapIntervalDiagnostics summary;
+  const detail::MocapHealthObservation * carried_in = nullptr;
+  for (const auto & observation : audit.mocap_diagnostics.health_observations) {
+    if (observation.header_stamp_ns <= interval.first_stamp_ns) {
+      if (observation.header_stamp_ns > 0 &&
+        (carried_in == nullptr ||
+        observation.header_stamp_ns > carried_in->header_stamp_ns))
+      {
+        carried_in = &observation;
+      }
+      continue;
+    }
+    if (observation.header_stamp_ns > interval.last_stamp_ns) {
+      continue;
+    }
+    ++summary.health_states[observation.health_state];
+    ++summary.reason_codes[observation.reason_code];
+  }
+  if (carried_in != nullptr &&
+    interval.first_stamp_ns - carried_in->header_stamp_ns <= kMaximumDiagnosticAgeNs)
+  {
+    ++summary.health_states[carried_in->health_state];
+    ++summary.reason_codes[carried_in->reason_code];
+  }
+  return summary;
+}
+
 void WriteTopicStatistics(
   const fs::path & path, const detail::AuditData & audit)
 {
@@ -1067,7 +1244,8 @@ void WriteMissingIntervals(
   if (!output) {
     throw std::runtime_error("cannot write " + path.string());
   }
-  output << "first_stamp_ns,last_stamp_ns,duration_sec,missing_samples,classification\n";
+  output << "first_stamp_ns,last_stamp_ns,duration_sec,missing_samples,classification," <<
+    "health_states,reason_codes\n";
   const StampPairingSummary pairing = PairExactStampMultisets(
     audit.raw_mocap_stamps_ns, audit.shadow_stamps_ns);
   std::optional<std::int64_t> first_shadow;
@@ -1084,10 +1262,35 @@ void WriteMissingIntervals(
   for (const auto & interval : pairing.missing_intervals) {
     const double duration_sec = static_cast<double>(
       interval.last_stamp_ns - interval.first_stamp_ns) / 1000000000.0;
+    const auto diagnostics = SummarizeIntervalDiagnostics(audit, interval);
     output << interval.first_stamp_ns << ',' << interval.last_stamp_ns << ',' <<
       std::setprecision(17) << duration_sec << ',' << interval.missing_samples <<
       ',' << ClassifyMissingInterval(
-      audit, interval, first_shadow, last_shadow) << '\n';
+      audit, interval, first_shadow, last_shadow) << ',' <<
+      Csv(JoinCounts(diagnostics.health_states)) << ',' <<
+      Csv(JoinCounts(diagnostics.reason_codes)) << '\n';
+  }
+  FinishReport(&output, path);
+}
+
+void WriteOrphanShadows(
+  const fs::path & path, const detail::AuditData & audit)
+{
+  std::ofstream output(path, std::ios::trunc);
+  if (!output) {
+    throw std::runtime_error("cannot write " + path.string());
+  }
+  output << "header_stamp_ns,bag_stamp_ns,bag_minus_header_sec,evidence_position\n";
+  const StampPairingSummary pairing = PairExactStampMultisets(
+    audit.raw_mocap_stamps_ns, audit.shadow_stamps_ns);
+  for (const auto & record : BuildOrphanShadowRecords(audit, pairing)) {
+    std::optional<double> residual_sec;
+    if (record.bag_stamp_ns.has_value()) {
+      residual_sec = static_cast<double>(
+        record.bag_stamp_ns.value() - record.header_stamp_ns) / 1000000000.0;
+    }
+    output << record.header_stamp_ns << ',' << OptionalInteger(record.bag_stamp_ns) <<
+      ',' << OptionalDouble(residual_sec) << ',' << record.evidence_position << '\n';
   }
   FinishReport(&output, path);
 }
@@ -1179,6 +1382,8 @@ void WriteSummary(
   }
   const StampPairingSummary mocap = PairExactStampMultisets(
     audit.raw_mocap_stamps_ns, audit.shadow_stamps_ns);
+  const auto orphan_positions = CountOrphanPositions(
+    BuildOrphanShadowRecords(audit, mocap));
   const StampPairingSummary vo = PairExactStampMultisets(
     audit.odometry_stamps_ns, audit.visual_status_stamps_ns);
   const auto evidence_window = PinnedEvidenceWindow();
@@ -1212,6 +1417,7 @@ void WriteSummary(
   output << "raw_shadow_matched=" << mocap.matched << '\n';
   output << "raw_without_shadow=" << mocap.raw_without_shadow << '\n';
   output << "shadow_without_raw=" << mocap.shadow_without_raw << '\n';
+  output << "shadow_orphan_positions=" << JoinCounts(orphan_positions) << '\n';
   output << "raw_shadow_coverage=" << OptionalDouble(mocap.raw_coverage_ratio) << '\n';
   output << "raw_shadow_value_mismatches=" <<
     audit.pose_pairs.value_mismatches << '\n';
@@ -1292,6 +1498,8 @@ AnalysisOutcome WriteReports(
   outcome.topic_statistics_path = report_directory / "topic_statistics.csv";
   outcome.missing_intervals_path =
     report_directory / "mocap_missing_intervals.csv";
+  outcome.orphan_shadows_path =
+    report_directory / "mocap_orphan_shadows.csv";
   outcome.diagnostic_statuses_path =
     report_directory / "diagnostic_statuses.csv";
   outcome.diagnostic_counters_path =
@@ -1302,6 +1510,8 @@ AnalysisOutcome WriteReports(
       staging_directory / outcome.topic_statistics_path.filename(), audit);
     WriteMissingIntervals(
       staging_directory / outcome.missing_intervals_path.filename(), audit);
+    WriteOrphanShadows(
+      staging_directory / outcome.orphan_shadows_path.filename(), audit);
     WriteDiagnosticStatuses(
       staging_directory / outcome.diagnostic_statuses_path.filename(), audit);
     WriteDiagnosticCounters(

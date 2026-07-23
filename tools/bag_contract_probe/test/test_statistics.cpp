@@ -136,6 +136,21 @@ TEST(StampPairing, PreservesDuplicateMultiplicity)
   EXPECT_EQ(summary.shadow_without_raw, 1U);
 }
 
+TEST(StampPairing, ReportsOrphanShadowStampsWithMultiplicityInSortedOrder)
+{
+  const auto summary = PairExactStampMultisets(
+    {20, 20, 40}, {50, 10, 20, 50, 20, 20, 0, -5, 30});
+
+  EXPECT_EQ(summary.valid_raw_stamps, 3U);
+  EXPECT_EQ(summary.valid_shadow_stamps, 7U);
+  EXPECT_EQ(summary.matched, 2U);
+  EXPECT_EQ(summary.raw_without_shadow, 1U);
+  EXPECT_EQ(summary.shadow_without_raw, 5U);
+  EXPECT_EQ(
+    summary.orphan_shadow_stamps_ns,
+    (std::vector<std::int64_t>{10, 20, 30, 50, 50}));
+}
+
 TEST(CounterSeries, ComputesDeltaOnlyWithinOneEpoch)
 {
   const auto summary = SummarizeCounterSeries({100U, 102U, 105U});
@@ -146,6 +161,22 @@ TEST(CounterSeries, ComputesDeltaOnlyWithinOneEpoch)
   ASSERT_TRUE(summary.delta_without_reset.has_value());
   EXPECT_EQ(summary.delta_without_reset.value(), 5U);
   EXPECT_EQ(summary.accumulated_increase, 5U);
+}
+
+TEST(CounterSeries, ClassifiesLeftCensoredActivityWithoutLosingSafetyMeaning)
+{
+  EXPECT_EQ(
+    ClassifyCounterSeries(SummarizeCounterSeries({0U, 0U})),
+    CounterSeriesState::kClean);
+  EXPECT_EQ(
+    ClassifyCounterSeries(SummarizeCounterSeries({4U, 4U})),
+    CounterSeriesState::kPreexistingNonzero);
+  EXPECT_EQ(
+    ClassifyCounterSeries(SummarizeCounterSeries({4U, 5U})),
+    CounterSeriesState::kIncreased);
+  EXPECT_EQ(
+    ClassifyCounterSeries(SummarizeCounterSeries({4U, 1U})),
+    CounterSeriesState::kReset);
 }
 
 TEST(CounterSeries, CounterRegressionStartsANewEpoch)

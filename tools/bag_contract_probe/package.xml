@@ -3,7 +3,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>bag_contract_probe</name>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <description>Read-only deterministic audit of cuVSLAM and mocap shadow bags.</description>
   <maintainer email="u5-4@users.noreply.github.com">u5-4</maintainer>
   <license>Apache-2.0</license>

@@ -73,6 +73,7 @@ struct StampPairingSummary
   std::size_t shadow_without_raw{0U};
   std::optional<double> raw_coverage_ratio;
   std::vector<MissingStampInterval> missing_intervals;
+  std::vector<std::int64_t> orphan_shadow_stamps_ns;
 };
 
 StampPairingSummary PairExactStampMultisets(
@@ -90,8 +91,17 @@ struct CounterSeriesSummary
   std::uint64_t accumulated_increase{0U};
 };
 
+enum class CounterSeriesState
+{
+  kClean,
+  kPreexistingNonzero,
+  kIncreased,
+  kReset,
+};
+
 CounterSeriesSummary SummarizeCounterSeries(
   const std::vector<std::uint64_t> & values);
+CounterSeriesState ClassifyCounterSeries(const CounterSeriesSummary & summary);
 
 }  // namespace bag_contract_probe
 

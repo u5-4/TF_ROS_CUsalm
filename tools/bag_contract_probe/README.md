@@ -37,7 +37,8 @@ in-place mutation during the read.
 
 - `analysis_summary.txt`: stable contract verdict and explicit limitations;
 - `topic_statistics.csv`: bag/header rates, gap percentiles, stamps, frames;
-- `mocap_missing_intervals.csv`: exact raw stamps lacking a recorded shadow;
+- `mocap_missing_intervals.csv`: raw-without-shadow intervals with health states and reasons;
+- `mocap_orphan_shadows.csv`: shadow-without-raw header/bag stamps and edge position;
 - `diagnostic_statuses.csv`: exact status cadence, levels, messages, hardware IDs;
 - `diagnostic_counters.csv`: left-censored first values, deltas, and resets;
 - `findings.csv`: `OBSERVED`, `REVIEW`, and `FAIL` findings.
@@ -47,7 +48,10 @@ FCU IMU relay's fixed `1,737,987 ns` offset and copied payload, cuVSLAM
 odometry/status pairing, `vo_state`, timesync continuity, and selected runtime
 diagnostic contracts. The mocap, aligned IMU, and calibrated runtime diagnostic
 streams are checked for identity, fixed metadata, cadence, health level,
-counter consistency, and resets. Missing shadow intervals are classified as
+counter consistency, and resets. Safety counters that are already nonzero at
+the left-censored recording boundary remain fail-level evidence, but they are
+reported once as preexisting rather than miscounted as repeated static-contract
+mismatches. Missing shadow intervals are classified as
 startup edge, teardown edge, healthy, nonhealthy, mixed-health, or unknown.
 Continuous source topics and all three required diagnostic statuses must cover
 the pinned recording window to within 2.5 seconds at each edge. Shadow output
@@ -71,7 +75,8 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 colcon build --symlink-install \
-  --packages-up-to bag_contract_probe \
+  --packages-select bag_contract_probe \
+  --cmake-clean-cache \
   --event-handlers console_direct+
 
 source install/setup.bash
@@ -131,6 +136,7 @@ OUT="$EVIDENCE/analysis_v1"
     analysis_summary.txt
     topic_statistics.csv
     mocap_missing_intervals.csv
+    mocap_orphan_shadows.csv
     diagnostic_statuses.csv
     diagnostic_counters.csv
     findings.csv

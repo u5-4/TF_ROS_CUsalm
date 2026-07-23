@@ -726,6 +726,7 @@ void AuditData::ObserveDiagnostics(
       }
 
       const auto offset = values.find("imu_to_camera_offset_ns");
+      // Cumulative counters are collected and checked separately below.
       const bool contract_matches =
         status.level == diagnostic_msgs::msg::DiagnosticStatus::OK &&
         status.hardware_id == "px4-highres-imu-105-ttyTHS2" &&
@@ -736,15 +737,7 @@ void AuditData::ObserveDiagnostics(
           {"output_topic", "/fcu/imu/data_raw_aligned"},
           {"expected_input_frame", "base_link"},
           {"output_frame", "fcu_imu"},
-          {"offset_equation", "t_aligned = t_imu_raw + offset"},
-          {"zero_stamp", "0"},
-          {"invalid_stamp", "0"},
-          {"duplicate", "0"},
-          {"nonmonotonic", "0"},
-          {"frame_mismatch", "0"},
-          {"nonfinite_measurement", "0"},
-          {"clock_domain_mismatch", "0"},
-          {"aligned_out_of_range", "0"}});
+          {"offset_equation", "t_aligned = t_imu_raw + offset"}});
       if (!contract_matches) {
         ++aligned_imu_diagnostics.contract_mismatches;
       }
