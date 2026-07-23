@@ -627,8 +627,8 @@ std::vector<OrphanShadowRecord> BuildOrphanShadowRecords(
       const std::int64_t bag_stamp_ns = stream->second.bag_stamps_ns[index];
       records.push_back(
         OrphanShadowRecord{
-          header_stamp_ns, bag_stamp_ns,
-          ClassifyEvidencePosition(bag_stamp_ns, evidence_window)});
+            header_stamp_ns, bag_stamp_ns,
+            ClassifyEvidencePosition(bag_stamp_ns, evidence_window)});
       --candidate->second;
     }
   }
@@ -733,7 +733,9 @@ void CheckCounterSeries(
         audit, detail::FindingSeverity::kFail, "DIAGNOSTIC_FAILURE_COUNTER_INCREASED",
         source + " key=" + entry.first + " first_left_censored=" +
         std::to_string(first) + " delta=" + std::to_string(delta));
-    } else if (state == CounterSeriesState::kPreexistingNonzero &&
+      continue;
+    }
+    if (state == CounterSeriesState::kPreexistingNonzero &&
       fail_on_increment.count(entry.first) > 0U)
     {
       AddFinding(
@@ -741,14 +743,18 @@ void CheckCounterSeries(
         "DIAGNOSTIC_FAILURE_COUNTER_PREEXISTING",
         source + " key=" + entry.first + " first_left_censored=" +
         std::to_string(first) + " delta=0");
-    } else if (state == CounterSeriesState::kIncreased &&
+      continue;
+    }
+    if (state == CounterSeriesState::kIncreased &&
       review_on_increment.count(entry.first) > 0U)
     {
       AddFinding(
         audit, detail::FindingSeverity::kReview, "DIAGNOSTIC_WARNING_COUNTER_INCREASED",
         source + " key=" + entry.first + " first_left_censored=" +
         std::to_string(first) + " delta=" + std::to_string(delta));
-    } else if (state == CounterSeriesState::kPreexistingNonzero &&
+      continue;
+    }
+    if (state == CounterSeriesState::kPreexistingNonzero &&
       review_on_increment.count(entry.first) > 0U)
     {
       AddFinding(
