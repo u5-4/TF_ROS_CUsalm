@@ -1,10 +1,10 @@
 # YOPO 实机集成版本清单
 
-基线标识：`yopo_platform_baseline_20260723_v1`
+基线标识：`yopo_platform_baseline_20260723_v2`
 
-状态：`IN_PROGRESS`。YOPO 模型加载和宿主 MAVROS/PX4 版本已采集；
-修订后的 localization-runtime v2 和 YOPO runtime inventory v2 尚待采集和核对，
-完成后才能将 `YP-020` 标记为 `PASSED`。
+状态：`PASSED`。localization-runtime、YOPO runtime 和宿主 MAVROS/PX4 三层
+版本证据已采集并核对。本结论只通过 `YP-020` 版本门禁，不授权控制输出、
+OFFBOARD、解锁或飞行。
 
 历史证据来源：`agent_merged_20260721.md`，SHA-256
 `b265514e9e92993cee81b32189778a74cfd7dac5587bb52886a891ce79752fa5`。
@@ -179,14 +179,14 @@ bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_
 
 | 字段 | 值 |
 | --- | --- |
-| localization-runtime 输出与 SHA-256 | `PENDING_V2` |
+| localization-runtime v2 输出与 SHA-256 | `/workspaces/isaac_ros-dev/localization_runtime_baseline_20260723_v2.txt`；`aef99888985e09cd81d616aac869a76a05f46d6967917e18a3f5949efe04b999` |
 | YOPO runtime inventory v1 | `/home/nvidia/yopo_runtime_baseline_20260723.txt`；`3c5940b7487ae55ffeaef1962d10096d169f8bbbc634080b91fb5963e1dfc3ed`；Conda 采集上下文，保留为历史证据 |
-| YOPO runtime inventory v2 | `PENDING` |
+| YOPO runtime inventory v2 | `/home/nvidia/yopo_runtime_baseline_20260723_v2.txt`；`6a6974aa7faa8b74fa045f0e8734563a09ee4bad9c0d91a224a4278663dcc570` |
 | YOPO 模型冒烟输出与 SHA-256 | `/home/nvidia/yopo_model_smoke_20260723.txt`；`909f0d839ddbdb64be7a1a9d44495139beaf86154f257d3a8fc615d3b8615608` |
 | host flight stack 输出与 SHA-256 | `/home/nvidia/host_flight_stack_baseline_20260723.txt`；`fe9c7c5694d146879d8834c8c67467952d79a8e9c115b070480c3886e424231d` |
-| 核对人 | `PENDING` |
-| 核对结果 | `PENDING` |
-| `YP-020` 最终状态 | `IN_PROGRESS` |
+| 核对人 | 用户采集；Codex 按固定条件核对 |
+| 核对结果 | `PASS_VERSION_INVENTORY` |
+| `YP-020` 最终状态 | `PASSED` |
 
 ### 7.1 第一次采集结果
 
@@ -204,5 +204,10 @@ bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_
 
 | Scope | 结果 | 结论 |
 | --- | --- | --- |
+| localization-runtime | `PASS_VERSION_INVENTORY` | `4789863`，工作树 clean；D435I `243622070369`/`5.15.1.55` 可直接枚举且无 busy；wrapper patch reverse-check 和 source marker 通过 |
 | YOPO runtime | `PASS_MODEL_LOAD` | `/usr/bin/python3`；PyTorch 2.11.0/CUDA 12.6 on Orin；官方 epoch-50 权重被动加载和 warm-up 通过；控制输出关闭 |
 | host flight stack | `PASS_VERSION_INVENTORY` | USB3 5000M、Docker 镜像、MAVROS packages、PX4 connected/未解锁和 firmware identity 已固定 |
+
+localization 容器未安装 `lsusb`，因此 v2 输出中记录
+`lsusb=UNAVAILABLE_IN_THIS_ENVIRONMENT`。这不是 USB 证据缺口：宿主基线已记录同一
+D435I `8086:0b3a` 全部接口为 `5000M`，容器内 librealsense 又独立确认了序列号和固件。
