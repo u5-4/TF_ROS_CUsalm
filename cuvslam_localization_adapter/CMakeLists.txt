@@ -80,6 +80,7 @@ if(BUILD_TESTING)
   if(TARGET test_contract_config)
     target_link_libraries(test_contract_config ${PROJECT_NAME}_core)
     target_compile_definitions(test_contract_config PRIVATE
+      TEST_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
       TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures")
   endif()
 

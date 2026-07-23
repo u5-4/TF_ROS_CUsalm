@@ -28,7 +28,7 @@
 | YP-110 | 验证红外 90 Hz、深度质量和 cuVSLAM 无回归 | `PASSED` | YP-100 | `GATE_G2_REPORT_20260723.md` |
 | YP-120 | 深度不足时执行 emitter A/B | `PASSED` | YP-110 判定不足 | `N/A_DECISION`；emitter-off centre p05 `0.854368` |
 | YP-200 | 审计 MAVROS 2.14/PX4 外部视觉接口和缺失速度表达 | `READY` | YP-020 | 源码 revision、台架消息证据 |
-| YP-210 | 固化 cuVSLAM 50 mm 外参合同与测试 | `READY` | YP-010 | 单元测试、配置 provenance |
+| YP-210 | 固化 cuVSLAM 50 mm 外参合同与测试 | `IN_PROGRESS` | YP-010 | 生产配置和回归测试已完成，待 Jetson 构建/测试证据 |
 | YP-220 | 实现 `localization_source_selector` | `BLOCKED` | YP-200、YP-210 | 单元和 launch 测试 |
 | YP-230 | 实现 `localization_output_gateway` | `BLOCKED` | YP-200、YP-220 | Gate G3 报告 |
 | YP-240 | 实现 `yopo_state_bridge` | `BLOCKED` | YP-230 | frame/twist/authority 测试 |
