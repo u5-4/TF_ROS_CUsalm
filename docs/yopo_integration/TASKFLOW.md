@@ -24,9 +24,9 @@
 | YP-000 | 复核并冻结本目录需求合同 | `PASSED` | 用户确认 | `5f03815` |
 | YP-010 | 从定位证据分支创建 `feat/yopo-integration-v1` | `PASSED` | YP-000 | 起点 `5f03815`，远程分支已建立 |
 | YP-020 | 固定跨运行环境和 PX4/MAVROS 版本清单 | `PASSED` | YP-010 | `VERSION_MANIFEST.md`、localization/YOPO/host 三份采集输出 |
-| YP-100 | 在 bringup 中开启原生深度，保持 emitter 关闭 | `IN_PROGRESS` | YP-020 | config diff、topic info |
-| YP-110 | 验证红外 90 Hz、深度质量和 cuVSLAM 无回归 | `BLOCKED` | YP-100 | Gate G2 报告 |
-| YP-120 | 深度不足时执行 emitter A/B | `BLOCKED` | YP-110 判定不足 | A/B 报告；不需要时标记 N/A 决策 |
+| YP-100 | 在 bringup 中开启原生深度，保持 emitter 关闭 | `PASSED` | YP-020 | `2584606`；73/73 tests；Depth `640x360@90`/`16UC1`；emitter=0 |
+| YP-110 | 验证红外 90 Hz、深度质量和 cuVSLAM 无回归 | `PASSED` | YP-100 | `GATE_G2_REPORT_20260723.md` |
+| YP-120 | 深度不足时执行 emitter A/B | `PASSED` | YP-110 判定不足 | `N/A_DECISION`；emitter-off centre p05 `0.854368` |
 | YP-200 | 审计 MAVROS 2.14/PX4 外部视觉接口和缺失速度表达 | `READY` | YP-020 | 源码 revision、台架消息证据 |
 | YP-210 | 固化 cuVSLAM 50 mm 外参合同与测试 | `READY` | YP-010 | 单元测试、配置 provenance |
 | YP-220 | 实现 `localization_source_selector` | `BLOCKED` | YP-200、YP-210 | 单元和 launch 测试 |

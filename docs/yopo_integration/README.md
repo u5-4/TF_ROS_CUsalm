@@ -3,8 +3,8 @@
 本目录是 YOPO、定位适配、SO3、MAVROS 与 PX4 实机集成阶段的主合同。
 合同基线标识为 `yopo_integration_20260723_v1`。
 
-当前状态是**需求合同已冻结、YOPO 实现分支已建立、跨仓库版本清单正在采集、
-功能实现尚未开始**。本目录不构成飞行授权，也不表示任何目标接口已经通过实机验收。
+当前状态是**需求和跨运行时版本基线已冻结，D435 Depth 与 cuVSLAM
+Gate G2 已通过，定位输出和控制链仍未授权**。本目录不构成飞行授权。
 
 ## 文档导航
 
@@ -18,6 +18,7 @@
 | [DECISION_LOG.md](DECISION_LOG.md) | 需求访谈中确认的架构决策与理由 |
 | [VERSION_MANIFEST.md](VERSION_MANIFEST.md) | 仓库、模型、Jetson、相机、MAVROS 与 PX4 版本基线 |
 | [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md) | 多运行时隔离、DDS 边界和设备 ownership |
+| [GATE_G2_REPORT_20260723.md](GATE_G2_REPORT_20260723.md) | D435 原生深度与 cuVSLAM 联合运行证据 |
 
 ## 权威顺序
 
@@ -41,5 +42,5 @@
 
 ## 当前执行动作
 
-完成 `VERSION_MANIFEST.md` 的 Jetson/PX4 实机字段采集并冻结 `YP-020`。在该任务
-通过前，不修改深度配置，也不开始 PX4 外部视觉或控制实现。
+开始 `YP-210` 的 50 mm 相机/`base_link` 外参合同与 `YP-200` 的
+MAVROS/PX4 外部视觉接口审计。在 Gate G3 通过前，不向 PX4 发布定位或控制输出。

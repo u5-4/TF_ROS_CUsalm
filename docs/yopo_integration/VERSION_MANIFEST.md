@@ -17,7 +17,7 @@ OFFBOARD、解锁或飞行。
 | --- | --- | --- | --- | --- |
 | `TF_ROS_CUsalm` | `feat/yopo-integration-v1` | 首次实机采集 `ac69b196e1c098a5fbcb8e0076ce2d2966359496`；分支起点 `5f03815d840513799908559eb427077155079c6e` | `https://github.com/u5-4/TF_ROS_CUsalm.git` | Jetson 已验证 clean |
 | `YOPO_ROS2` | Jetson `ros2-humble`；Windows 审计分支 `jetson-passive-deployment` | `80c0569e4d1ed8ed8c885bc7df200b18b9881088` | `https://github.com/u5-4/YOPO_ROS2.git` | Jetson 已验证 clean，ROS packages 已安装 |
-| cuVSLAM 定制与 bringup | `u5-4/fcu-imu-cuvslam-integration` | `04d7b9cd1a4f6ebe324538a3892d32ccc794e650` | `https://github.com/u5-4/cuVSLAM.git` | Jetson 已验证 clean |
+| cuVSLAM 定制与 bringup | `u5-4/fcu-imu-cuvslam-integration` | 平台基线 `04d7b9cd1a4f6ebe324538a3892d32ccc794e650`；YP-100 Depth `2584606` | `https://github.com/u5-4/cuVSLAM.git` | `2584606` 已在 Jetson 构建；73/73 package tests 通过 |
 | `isaac_ros_visual_slam` | package `3.2.6` | `e31f4cc1d41a329a01946e5fe63669f8b15da677` | NVIDIA Isaac ROS 3.2.15 审计副本 | Jetson commit 已验证；预期 wrapper patch 已应用，待 patch verifier 复核 |
 | `vrpn_client_ros` | package `0.2.2` | `1b9731c055c08d8496897108580534a80da0b158` | `https://github.com/u5-4/vrpn_client_ros2.git` | Jetson 已验证 clean |
 
@@ -108,7 +108,7 @@ YOPO commit、权重和 Python 版本必须在宿主实际 `yopo_node` 执行环
 | --- | --- | --- |
 | IR1 + IR2 + Depth + D435I IMU，约 30 Hz | 短时并发通过；图像约 29.99 Hz，合并 IMU 约 199.8 Hz，时间戳零值和回退均为 0 | 否；不是当前 FCU IMU/90 Hz 配置 |
 | IR1 + IR2 @90 Hz + PX4 FCU IMU + cuVSLAM，Depth 关闭 | 双目约 89.9--90.4 Hz，aligned FCU IMU 约 171 Hz，连续约 17 分 48 秒，无持续失跟、USB 断连或 CUDA OOM | 否；没有并行 Depth |
-| IR1 + IR2 @90 Hz + 原生 Depth + PX4 FCU IMU + cuVSLAM | 当前目标配置 | 尚未执行，必须在 `YP-100/110` 重新验收 |
+| IR1 + IR2 @90 Hz + 原生 Depth + PX4 FCU IMU + cuVSLAM | Depth/IR 约 89.4--89.9 Hz；Depth full/centre p05 `0.873587`/`0.854368`；emitter=0；cuVSLAM `vo_state=1`；GPU/CPU 最高约 54.6/57.5 C | `YP-100/110` 和 Gate G2 通过；`YP-120=N/A_DECISION` |
 
 因此，已有记录证明硬件能够分别运行 Depth 和 90 Hz cuVSLAM，但不证明两者在当前
 launch 中并行时仍满足频率、同步、深度有效率、USB 和资源门禁。
