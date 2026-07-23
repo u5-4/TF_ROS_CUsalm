@@ -23,7 +23,7 @@
 | --- | --- | --- | --- | --- |
 | YP-000 | 复核并冻结本目录需求合同 | `PASSED` | 用户确认 | `5f03815` |
 | YP-010 | 从定位证据分支创建 `feat/yopo-integration-v1` | `PASSED` | YP-000 | 起点 `5f03815`，远程分支已建立 |
-| YP-020 | 固定跨仓库和 PX4/MAVROS 版本清单 | `IN_PROGRESS` | YP-010 | `VERSION_MANIFEST.md`、实机采集输出 |
+| YP-020 | 固定跨运行环境和 PX4/MAVROS 版本清单 | `IN_PROGRESS` | YP-010 | `VERSION_MANIFEST.md`、localization/YOPO/host 三份采集输出 |
 | YP-100 | 在 bringup 中开启原生深度，保持 emitter 关闭 | `BLOCKED` | YP-020 | config diff、topic info |
 | YP-110 | 验证红外 90 Hz、深度质量和 cuVSLAM 无回归 | `BLOCKED` | YP-100 | Gate G2 报告 |
 | YP-120 | 深度不足时执行 emitter A/B | `BLOCKED` | YP-110 判定不足 | A/B 报告；不需要时标记 N/A 决策 |
@@ -51,6 +51,10 @@
 2026-07-23 的 dual-shadow 录包与 `analysis_v2` 已完成 hash 封存，但其
 `runtime_contract=FAIL`。它证明了工具链能够读完固定证据并识别启动边界 orphan、
 历史 clock counter 和 mocap 缺口；它不是 Gate G3 或飞行授权证据。
+
+YOPO 已在 Jetson 宿主机 Conda `yopo` 环境完成基础部署和构建，源码位于
+`/home/nvidia/catkin_ws/src/YOPO_ROS2`。当前未解决项是 `YP-400/410` 的 ROS 2
+SO3 core 与 MAVROS 控制 backend，不得把它误记为 YOPO 未部署。
 
 ## 4. 更新模板
 

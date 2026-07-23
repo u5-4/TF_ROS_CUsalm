@@ -17,6 +17,7 @@
 | [TASKFLOW.md](TASKFLOW.md) | YOPO 阶段唯一任务状态来源 |
 | [DECISION_LOG.md](DECISION_LOG.md) | 需求访谈中确认的架构决策与理由 |
 | [VERSION_MANIFEST.md](VERSION_MANIFEST.md) | 仓库、模型、Jetson、相机、MAVROS 与 PX4 版本基线 |
+| [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md) | 多运行时隔离、DDS 边界和设备 ownership |
 
 ## 权威顺序
 

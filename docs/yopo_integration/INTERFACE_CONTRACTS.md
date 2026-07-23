@@ -85,6 +85,8 @@ Pose reset 或模式改变都必须结束当前 epoch。
 ## 6. Topic 合同
 
 下表区分当前观测输入与目标接口。目标接口只有在依赖门禁通过后才能发布。
+这些 topic 同时是运行环境之间的 DDS 边界；任何消费者不得通过共享进程内存、
+Python 环境或容器动态库绕过消息合同。
 
 | Topic | Type | 生产者 | 语义 |
 | --- | --- | --- | --- |
@@ -99,6 +101,10 @@ Pose reset 或模式改变都必须结束当前 epoch。
 | YOPO position command | `quadrotor_msgs/msg/PositionCommand` | YOPO | 位置、速度、加速度、yaw 均属于 `map` |
 | SO3 internal command | 独立 ROS 2 接口 | SO3 core | 期望姿态、角速度、归一化推力 |
 | `/mavros/setpoint_raw/attitude` | `mavros_msgs/msg/AttitudeTarget` | control backend | 首版候选 PX4 控制边界 |
+
+localization-runtime 是 D435I 和原生深度 topic 的唯一 publisher authority。YOPO
+runtime 只订阅标准深度和状态接口。MAVROS 与 PX4 的接口审计在宿主/控制环境完成，
+不要求 localization-runtime 安装 MAVROS 可执行包。
 
 ### 6.1 PX4 外部视觉接口未决项
 
@@ -146,4 +152,3 @@ YOPO reference
 
 PX4 EKF 是状态估计 authority，不是轨迹控制器。SO3 核心不得负责解锁、模式切换、
 定位源切换或直接电机控制。
-

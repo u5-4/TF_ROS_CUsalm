@@ -14,15 +14,19 @@ PX4 飞控字段必须由目标实机重新采集后才能将 `YP-020` 标记为
 
 | 组件 | 分支或版本 | Commit | 来源 | 状态 |
 | --- | --- | --- | --- | --- |
-| `TF_ROS_CUsalm` | `feat/yopo-integration-v1` | `5f03815d840513799908559eb427077155079c6e` | `https://github.com/u5-4/TF_ROS_CUsalm.git` | 已固定 |
-| `YOPO_ROS2` | `jetson-passive-deployment` | `80c0569e4d1ed8ed8c885bc7df200b18b9881088` | fork `https://github.com/u5-4/YOPO_ROS2.git` | 已固定 |
-| cuVSLAM 定制与 bringup | `u5-4/fcu-imu-cuvslam-integration` | `04d7b9cd1a4f6ebe324538a3892d32ccc794e650` | `https://github.com/u5-4/cuVSLAM.git` | Jetson 待复核 |
-| `isaac_ros_visual_slam` | package `3.2.6` | `e31f4cc1d41a329a01946e5fe63669f8b15da677` | NVIDIA Isaac ROS 3.2.15 审计副本 | Jetson 待复核 |
-| `vrpn_client_ros` | package `0.2.2` | `1b9731c055c08d8496897108580534a80da0b158` | `https://github.com/u5-4/vrpn_client_ros2.git` | Jetson 待复核 |
+| `TF_ROS_CUsalm` | `feat/yopo-integration-v1` | 首次实机采集 `ac69b196e1c098a5fbcb8e0076ce2d2966359496`；分支起点 `5f03815d840513799908559eb427077155079c6e` | `https://github.com/u5-4/TF_ROS_CUsalm.git` | Jetson 已验证 clean |
+| `YOPO_ROS2` | `jetson-passive-deployment` | `80c0569e4d1ed8ed8c885bc7df200b18b9881088` | `https://github.com/u5-4/YOPO_ROS2.git` | 宿主机已部署并构建，待独立环境复核 |
+| cuVSLAM 定制与 bringup | `u5-4/fcu-imu-cuvslam-integration` | `04d7b9cd1a4f6ebe324538a3892d32ccc794e650` | `https://github.com/u5-4/cuVSLAM.git` | Jetson 已验证 clean |
+| `isaac_ros_visual_slam` | package `3.2.6` | `e31f4cc1d41a329a01946e5fe63669f8b15da677` | NVIDIA Isaac ROS 3.2.15 审计副本 | Jetson commit 已验证；预期 wrapper patch 已应用，待 patch verifier 复核 |
+| `vrpn_client_ros` | package `0.2.2` | `1b9731c055c08d8496897108580534a80da0b158` | `https://github.com/u5-4/vrpn_client_ros2.git` | Jetson 已验证 clean |
 
 `isaac_ros_yopo_bringup` package 版本为 `0.2.0`，位于 cuVSLAM 定制仓库的
 `integrations/isaac_ros_3_2_yopo/` 下。表中的本地审计 commit 不能替代 Jetson
 实际工作区 commit；两者必须完全一致或明确记录差异。
+
+YOPO 本体已经部署和构建。当前尚未解决的是历史 SO3 controller 到 ROS 2 Humble、
+实机状态反馈和可替换 MAVROS backend 的迁移；该工作属于 `YP-400/410`，不是
+`YP-020` 的版本采集缺口，也不是重新部署 YOPO 的理由。
 
 ## 2. 固定文件与模型
 
@@ -34,27 +38,38 @@ PX4 飞控字段必须由目标实机重新采集后才能将 `YP-020` 标记为
 | `isaac_ros_yopo_bringup/launch/d435i_fcu_imu_cuvslam.launch.py` | `e272ff88df99668de3ddf8f0c597767be0331b5cafe9207a9166f8bc9afaa39d` |
 | `isaac_ros_yopo_bringup/config/d435i_243622070369_fcu_imu.yaml` | `934388fe191b53b1b71b96bc3a5600a9524357fc0c0a8cc7c0da3ffaeb2f4f92` |
 | `isaac_ros_yopo_bringup/config/px4_imu_noise_unvalidated.yaml` | `73328ada53105daf96af06dcc3e80edcfc9f9184ad67bca4e68e50d617062b9e` |
+| `patches/isaac_ros_visual_slam_v3_2_15_imu_timestamp.patch` | `913b82b16e144a640139e14c24d01881b183c29643401e176df481bdabb0de50` |
 
 YOPO 权重约 43 MiB，当前由 Git 跟踪。后续如果权重文件发生变化，即使文件名不变，
 也必须建立新的基线，不允许覆盖本表 hash。
 
-## 3. Jetson 与软件运行时基线
+## 3. Jetson 与分层运行时基线
+
+部署不是单容器。localization-runtime、宿主 Conda `yopo` 环境和宿主 MAVROS/PX4
+分别采集，详见 [`DEPLOYMENT_ARCHITECTURE.md`](DEPLOYMENT_ARCHITECTURE.md)。
 
 | 项目 | 已验证值 | 证据状态 |
 | --- | --- | --- |
 | Jetson | Orin NX 16GB | 2026-07-21 历史证据已确认，待本轮复核 |
 | JetPack / L4T | JetPack 6.2 / L4T 36.4.3 | 2026-07-21 历史证据已确认，待本轮复核 |
-| Ubuntu | 22.04.5 LTS | 2026-07-21 历史证据已确认，待本轮复核 |
-| ROS | ROS 2 Humble | 2026-07-21 历史证据已确认，待本轮复核 |
-| CUDA / cuDNN / TensorRT | 12.6.68 / 9.3 / 10.3 | 2026-07-21 历史证据已确认，待本轮复核 |
-| YOPO PyTorch | 2.11.0，CUDA 可用 | 历史运行已加载 `epoch50.pth`，待 hash 复核 |
+| Ubuntu | 容器 22.04.4 LTS；历史宿主记录 22.04.5 LTS | 容器已于本轮复核；宿主待复核 |
+| ROS | ROS 2 Humble | 本轮已复核 |
+| CUDA / cuDNN / TensorRT | CUDA 12.6.68；历史 cuDNN 9.3 / TensorRT 10.3 | CUDA 已于本轮复核；其余待复核 |
+| localization 容器 PyTorch | `2.5.0a0+872d972e41.nv24.08`，CUDA 可用 | 仅为环境事实，不代表 YOPO runtime |
+| YOPO runtime | 宿主 Conda `yopo`，路径 `/home/nvidia/miniconda3/envs/yopo` | 已部署和构建，版本待独立采集 |
+| YOPO source | `/home/nvidia/catkin_ws/src/YOPO_ROS2` | 已确认，待 commit/hash 复核 |
 | Docker | 29.4.3 | 2026-07-21 历史证据已确认，待本轮复核 |
 | NVIDIA Container Toolkit | 1.16.2 | 2026-07-21 历史证据已确认，待本轮复核 |
-| RMW implementation | 待采集 | `PENDING` |
-| ROS Domain | `42` | 已固定，待本轮复核 |
+| RMW implementation | `rmw_fastrtps_cpp` | 本轮已复核 |
+| ROS Domain | `42` | 本轮已复核 |
 | cuVSLAM | Isaac ROS Visual SLAM `3.2.6` | Jetson package/commit 待复核 |
 | MAVROS | `2.14.0` | exact Debian version 待采集 |
 | `mavros_msgs` | 终端曾显示 `2.14.0-1jammy.20260605.140341` | 待重新采集并固化 |
+
+第一次采集所在 localization 容器没有 `mavros`、`mavros_msgs` 或 YOPO 源码，符合
+部署隔离设计，不构成缺包。MAVROS/PX4 版本和 vehicle identity 必须在宿主环境采集；
+YOPO commit、权重和 Python 版本必须在宿主 Conda `yopo` 环境采集。禁止为了完成
+清单而把这些依赖安装进 localization-runtime。
 
 历史容器恢复锚点：
 
@@ -89,6 +104,10 @@ YOPO 权重约 43 MiB，当前由 Git 跟踪。后续如果权重文件发生变
 因此，已有记录证明硬件能够分别运行 Depth 和 90 Hz cuVSLAM，但不证明两者在当前
 launch 中并行时仍满足频率、同步、深度有效率、USB 和资源门禁。
 
+2026-07-23 第一次本轮枚举返回 `RS2_USB_STATUS_BUSY`。这表示 D435I 被 RealSense
+节点或其他进程占用，不是“未插入设备”的证据。复测前必须停止所有 RealSense launch；
+设备保持 USB3 连接，但不启动相机 ROS 节点。
+
 ## 5. PX4 基线
 
 | 项目 | 值 | 状态 |
@@ -97,40 +116,75 @@ launch 中并行时仍满足频率、同步、深度有效率、USB 和资源门
 | PX4 flight software version | 待采集 | `PENDING` |
 | PX4 git/firmware hash | 待采集 | `PENDING` |
 | MAVLink vehicle identity | 待采集 | `PENDING` |
-| `MPC_THR_HOVER` | `0.60` | 用户确认，必须从飞控读取复核 |
-| 外部视觉 EKF 参数 | 待 MAVROS/PX4 审计后固定 | `PENDING` |
-| OFFBOARD loss 参数 | 待控制阶段审计后固定 | `PENDING` |
+| `MPC_THR_HOVER` | `0.60` | 用户确认；实际读取延后至 SO3/控制台架门禁 |
+| 外部视觉 EKF 参数 | 不属于 `YP-020` | 在 `YP-200` 按实际接口读取必要子集 |
+| OFFBOARD loss 参数 | 不属于 `YP-020` | 在 `YP-420` 读取必要子集 |
 
 当前清单不批准任何 PX4 external-vision topic，也不批准飞行。接口选择仍由 `YP-200`
 的 MAVROS 2.14/PX4 源码和台架证据决定。
 
 ## 6. 实机采集方法
 
-在 Jetson 容器内、MAVROS 已连接 PX4 时执行：
+三份采集必须分别在实际运行环境执行。
+
+localization-runtime 容器：
 
 ```bash
 cd /workspaces/isaac_ros-dev/src/TF_ROS_CUsalm
 bash tools/collect_yopo_platform_baseline.sh \
-  | tee /workspaces/isaac_ros-dev/yopo_platform_baseline_20260723.txt
+  | tee /workspaces/isaac_ros-dev/localization_runtime_baseline_20260723_v2.txt
 ```
 
-该脚本只读。输出不得直接提交为“通过”；必须人工核对以下条件：
+Jetson 宿主机的 YOPO Conda 环境：
+
+```bash
+source /home/nvidia/miniconda3/etc/profile.d/conda.sh
+conda activate yopo
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_yopo_runtime_baseline.sh \
+  | tee /home/nvidia/yopo_runtime_baseline_20260723.txt
+```
+
+Jetson 宿主机、MAVROS 已启动时：
+
+```bash
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+bash /home/nvidia/workspaces/isaac_ros_3_2/src/TF_ROS_CUsalm/tools/collect_host_flight_stack_baseline.sh \
+  | tee /home/nvidia/host_flight_stack_baseline_20260723.txt
+```
+
+三个脚本都只读。输出不得直接提交为“通过”；必须人工核对以下条件：
 
 1. Jetson 实际仓库 commit 与第 1 节一致；
-2. 所有相关工作区均为 clean，或每个差异都有固定 diff；
-3. YOPO 权重和配置 hash 与第 2 节一致；
+2. 各运行环境中的相关工作区均为 clean，或每个差异都有固定 patch；
+3. 宿主 `yopo` 环境中的 YOPO 权重和配置 hash 与第 2 节一致；
 4. D435I 序列号与固件一致；
-5. MAVROS、`mavros_msgs` 和 PX4 固件版本完整；
-6. `MPC_THR_HOVER` 从飞控读取为 `0.60`；
-7. 采集输出本身生成 SHA-256，并在本表记录路径和 hash。
+5. 宿主 MAVROS、`mavros_msgs` 和 PX4 固件身份完整；
+6. 三份采集输出分别生成 SHA-256，并在本表记录路径和 hash。
 
 ## 7. 完成记录
 
 | 字段 | 值 |
 | --- | --- |
-| Jetson 采集时间 | `PENDING` |
-| 采集输出路径 | `PENDING` |
-| 采集输出 SHA-256 | `PENDING` |
+| localization-runtime 输出与 SHA-256 | `PENDING_V2` |
+| YOPO runtime 输出与 SHA-256 | `PENDING` |
+| host flight stack 输出与 SHA-256 | `PENDING` |
 | 核对人 | `PENDING` |
 | 核对结果 | `PENDING` |
 | `YP-020` 最终状态 | `IN_PROGRESS` |
+
+### 7.1 第一次采集结果
+
+| 字段 | 值 |
+| --- | --- |
+| 采集时间 | `2026-07-23T08:06:25+00:00` |
+| 输出路径 | `/workspaces/isaac_ros-dev/yopo_platform_baseline_20260723.txt` |
+| 输出 SHA-256 | `1658891f87510a6e032eaf9053990719957d78a6636510ab308ab73896873081` |
+| 结果 | `PARTIAL` |
+| 已完成 | localization 容器的 Jetson/L4T、Ubuntu、CUDA、ROS/RMW、主要仓库 commit、librealsense |
+| 符合设计的隔离项 | localization 容器内没有 YOPO、MAVROS 和 `mavros_msgs` |
+| 缺口 | D435I busy；Visual SLAM applied patch 待复核；YOPO runtime 与 host flight stack 尚未独立采集 |

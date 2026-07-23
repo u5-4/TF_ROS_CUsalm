@@ -157,6 +157,17 @@ rosbag hash、分析报告、日期、模式、操作者和结果。
 
 桥接器作为 `TF_ROS_CUsalm` 内的独立 ROS package 开发，不新建 Git 仓库。
 
+代码仓库归属不等于运行环境合并。部署必须遵循
+[`DEPLOYMENT_ARCHITECTURE.md`](DEPLOYMENT_ARCHITECTURE.md)：
+
+- localization-runtime 独占 D435I，并包含 Isaac ROS、NITROS 和 cuVSLAM；
+- YOPO 使用宿主机独立 Conda 环境 `yopo`，当前源码位于
+  `/home/nvidia/catkin_ws/src/YOPO_ROS2`，并已完成基础部署和构建；
+- MAVROS/PX4 链路和未来 control gateway 位于宿主或独立控制环境；
+- 环境之间只通过 ROS 2 DDS 和固定消息合同交互；
+- 禁止把 YOPO/PyTorch 依赖安装进 localization-runtime，也禁止让 YOPO 环境
+  直接打开 D435I。
+
 ## 6. 首版明确排除
 
 - 飞行中自动切换定位源；
@@ -168,4 +179,3 @@ rosbag hash、分析报告、日期、模式、操作者和结果。
 - 高速飞行和窄缝穿越；
 - 软件自动解锁；
 - 直接电机控制。
-
