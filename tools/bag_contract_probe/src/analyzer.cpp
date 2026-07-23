@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
@@ -46,7 +47,6 @@
 #include <rosbag2_storage/serialized_bag_message.hpp>
 #include <rosbag2_storage/storage_options.hpp>
 #include <rosbag2_storage/topic_metadata.hpp>
-#include <yaml-cpp/yaml.h>
 
 #include "audit.hpp"
 #include "bag_contract_probe/statistics.hpp"
@@ -1038,7 +1038,7 @@ void WriteTopicStatistics(
       Csv(entry.second.serialization_format) << ',' << entry.second.messages << ',' <<
       (entry.second.payload_audited ? "1" : "0") << ',' <<
       (entry.second.payload_audited ?
-      std::to_string(entry.second.invalid_payload) : "NA") << ',' <<
+    std::to_string(entry.second.invalid_payload) : "NA") << ',' <<
       OptionalDouble(bag.rate_hz) << ',' << bag.zero_or_invalid << ',' <<
       bag.duplicate << ',' << bag.nonmonotonic << ',' <<
       OptionalDouble(bag.minimum_gap_sec) << ',' <<
