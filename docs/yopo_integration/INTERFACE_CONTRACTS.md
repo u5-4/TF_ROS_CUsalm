@@ -122,7 +122,6 @@ Python 环境或容器动态库绕过消息合同。
 | `/localization/candidates/cuvslam/base_pose` | `LocalizationSourceCandidate` | cuVSLAM adapter | `odom -> base_link`；已应用 50 mm 外参；仅 `source_pose_candidate_only` |
 | `/localization/candidates/mocap/base_pose` | `LocalizationSourceCandidate` | mocap adapter | `mocap_world -> base_link`；仅 `source_pose_candidate_only` |
 | `/localization/selected/pose` | `SelectedPoseCandidate` | `localization_source_selector` | 当前 epoch 的 `map -> base_link`；无 twist/covariance；只供 gateway 使用 |
-| `/localization/odometry` | `nav_msgs/msg/Odometry` | localization output gateway | 后续规范状态输出；selector 无发布权 |
 | `/mavros/vision_pose/pose_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | localization output gateway | 选定的 pose-only PX4 输入候选；当前仍禁止发布 |
 | `/mavros/local_position/odom` | `nav_msgs/msg/Odometry` | MAVROS/PX4 | PX4 EKF 融合状态；实际 frame 必须启动时验证 |
 | `/state/odom` | `nav_msgs/msg/Odometry` | `yopo_state_bridge` | YOPO legacy：Pose 在 `map`，线速度表达于 `map` |
@@ -169,6 +168,13 @@ PX4 接收 `VISION_POSITION_ESTIMATE` 后只得到 pose，velocity 保持 `NaN/U
 - bridge 只旋转/换基，不估计速度；
 - 删除 legacy 接口前不得静默改变语义。
 
+### 6.3 `/localization/odometry` 延后
+
+首版不创建 `/localization/odometry` publisher。selected seam 只有 Pose，不携带 twist
+或 covariance；零值会伪造有效测量，NaN Odometry 也会引入当前没有消费者、没有
+验收依据的额外合同。若未来确有规范 Odometry 需求，必须从 PX4 EKF 融合状态定义
+独立 module 和验收，不得从 pose-only selected 输入推导或填充速度。
+
 ## 7. 时间合同
 
 - 转换输出继承来源采样时间，不使用转换回调时刻替换；
@@ -181,7 +187,7 @@ PX4 接收 `VISION_POSITION_ESTIMATE` 后只得到 pose，velocity 保持 `NaN/U
 
 - 动捕 adapter 不计算速度；
 - `localization_source_selector` 不消费、计算或发布速度；
-- localization output gateway 不创建速度估计；
+- localization output gateway 只输出 pose-only MAVROS 候选，不创建 Odometry 或速度；
 - `yopo_state_bridge` 只转换 PX4 EKF 已估计速度；
 - YOPO 不估计定位速度；
 - SO3 使用 PX4 融合状态反馈；

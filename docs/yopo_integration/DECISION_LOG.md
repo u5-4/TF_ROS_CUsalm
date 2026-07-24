@@ -109,3 +109,17 @@ ROS 2 `yopo_node` 的执行路径中；不对其重复安装 Jetson PyTorch。
 
 **理由：** 该拆分是为隔离已经识别的环境和依赖冲突，同时保证定位、规划与飞控
 可以分别升级、测试和回滚。单仓库中的 ROS package 组织不改变部署隔离。
+
+## D-019：首版 gateway 不发布 canonical Odometry
+
+**决策：** `localization_output_gateway` 首版只把获批的
+`SelectedPoseCandidate` 门禁到 MAVROS pose-only 输入，不创建
+`/localization/odometry`。默认部署不得创建 MAVROS publisher；Gate G3 active 合同
+在阈值获批前只允许作为测试 fixture，不安装生产 launch。
+
+**理由：** selected seam 没有 twist 或 covariance。零值会伪造测量，NaN Odometry
+仍会扩大未获批准且无人消费的合同。YOPO 最终状态 authority 是 PX4 EKF，首版没有
+重复创建 canonical Odometry 的必要。
+
+**验证要求：** 先只读采集不少于 60 秒的 MAVROS state/timesync，再固定 gateway
+freshness、RTT、offset jitter 等阈值；禁止直接继承 selector 的健康阈值。

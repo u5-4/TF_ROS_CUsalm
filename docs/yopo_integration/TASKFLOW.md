@@ -29,8 +29,8 @@
 | YP-120 | 深度不足时执行 emitter A/B | `PASSED` | YP-110 判定不足 | `N/A_DECISION`；emitter-off centre p05 `0.854368` |
 | YP-200 | 审计 MAVROS 2.14/PX4 外部视觉接口和缺失速度表达 | `PASSED` | YP-020 | `f8fde79`；v2 SHA `6778c559...f2c66d`；errors/warnings `0/0`；NaN 透传归 Gate G3 |
 | YP-210 | 固化 cuVSLAM 50 mm 外参合同与测试 | `PASSED` | YP-010 | `f300bec`；2 packages；417 tests，0 failures |
-| YP-220 | 实现 `localization_source_selector` | `IN_PROGRESS` | YP-200、YP-210 | `YP_220_SOURCE_SELECTOR_CONTRACT.md`；pose-only seam、一次对齐、source isolation、authority 单元和 launch 测试 |
-| YP-230 | 实现 `localization_output_gateway` | `BLOCKED` | YP-200、YP-220 | Gate G3 报告 |
+| YP-220 | 实现 `localization_source_selector` | `PASSED` | YP-200、YP-210 | `caa2440`；13/13 CTest；90 tests，0 failures；证据 SHA `7060bcc0...a6434cf` |
+| YP-230 | 实现 `localization_output_gateway` | `IN_PROGRESS` | YP-200、YP-220 | Gateway 合同与 Gate G3 报告待完成 |
 | YP-240 | 实现 `yopo_state_bridge` | `BLOCKED` | YP-230 | frame/twist/authority 测试 |
 | YP-250 | 实现两个互斥 primary launch | `BLOCKED` | YP-220、YP-230、YP-240 | launch authority 测试 |
 | YP-290 | 确认 YOPO 实际 Python 推理环境并完成模型加载冒烟 | `PASSED` | YP-010 | system Python/CUDA 证据；`yopo_model_smoke_20260723.txt` |

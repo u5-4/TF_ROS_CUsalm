@@ -81,11 +81,16 @@ launch 由 `YP-250` 交付，不能用单独 selector 节点启动代替。
 ### REQ-F-004：定位职责
 
 定位 adapter 负责来源特有的读取、校验和固定安装变换；selector 负责启动时来源
-互斥、一次 yaw-only `map` 对齐和 pose-only selected seam；gateway 负责 canonical
-与 PX4 输出门禁。三者不得通过 Pose 差分建立新的飞行速度估计器。
+互斥、一次 yaw-only `map` 对齐和 pose-only selected seam；gateway 只负责把获批的
+selected pose 门禁到 PX4 pose-only 输入。三者不得通过 Pose 差分建立新的飞行速度
+估计器。
 
 selector 不得发布 `/localization/odometry`、`/state/odom`、TF、MAVROS 或控制 topic。
 选择成功不等于 gateway、Gate G3、OFFBOARD、解锁或飞行授权。
+
+首版不发布 `/localization/odometry`。`SelectedPoseCandidate` 没有 twist 或 covariance，
+将它包装为 `nav_msgs/Odometry` 会扩大未获批准的速度、covariance 和 child-frame
+语义。完整状态由 PX4 EKF 提供，并由 `yopo_state_bridge` 转成 YOPO 私有接口。
 
 ### REQ-F-005：最终状态来源
 

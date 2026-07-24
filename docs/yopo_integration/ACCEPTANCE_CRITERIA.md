@@ -61,6 +61,10 @@
 - mode 启动后不可改变；
 - selector 只发布一个 `SelectedPoseCandidate` pose seam，且自身没有
   `/localization/odometry`、TF 或 MAVROS publisher；
+- gateway 首版不创建 `/localization/odometry`、TF、YOPO 或控制 publisher；
+- packaged 默认 disabled gateway 的 MAVROS publisher count 必须为零；
+- active Gate G3 合同安装前，必须封存不少于 60 秒的 MAVROS state/timesync 证据，
+  并据此批准 freshness、RTT 和 offset jitter 阈值；
 - 非主定位源可以继续发布 source-private candidate 或 shadow evidence，但不得获得
   selected、gateway、PX4 external-vision 或控制 authority；
 - PX4 外部视觉输入最多一个 publisher；

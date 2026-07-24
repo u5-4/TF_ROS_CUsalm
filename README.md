@@ -2,7 +2,8 @@
 
 YOPO 实机集成中的 ROS 2 定位合同、适配器、启动时定位源选择器和只读证据工具。
 
-> 当前状态：`localization_source_selector` 正在实现和目标机验收，权威状态见
+> 当前状态：`localization_source_selector` 已通过，`localization_output_gateway`
+> 正在执行 TDD 红阶段，权威状态见
 > [`TASKFLOW.md`](docs/yopo_integration/TASKFLOW.md)。本仓库当前不授予 PX4 external
 > vision、OFFBOARD、解锁、控制或飞行权限。
 
@@ -32,10 +33,10 @@ cuvslam_localization_adapter             mocap_localization_adapter
                     SelectedPoseCandidate
                               |
                               v
-             localization_output_gateway (future YP-230)
-                              |
-                              v
-             /mavros/vision_pose/pose_cov (forbidden now)
+             localization_output_gateway (YP-230 in progress)
+             default: disabled, no privileged publisher
+                              X
+       /mavros/vision_pose/pose_cov (publisher count = 0)
 ```
 
 两个定位源是同级候选。`cuvslam_primary` 和 `mocap_primary` 必须由互斥的完整 launch
@@ -43,8 +44,9 @@ cuvslam_localization_adapter             mocap_localization_adapter
 回退、publisher 变化或合同不匹配时，selector 停止 selected output 并 fail closed。
 恢复 authority 不能靠自动切换来源，也不能靠自动重启单个 selector。
 
-完整双模式 launch 属于 `YP-250`，未来 output gateway 属于 `YP-230`。当前仓库中的
-两个 selector launch 只用于 module 级实现与测试，不代表完整系统或飞行授权。
+完整双模式 launch 属于 `YP-250`，output gateway 属于当前 `YP-230`。默认 gateway
+合同不创建 MAVROS publisher；当前仓库中的 module launch 只用于实现与测试，不代表
+完整系统或飞行授权。
 
 ## 2. 已固定的坐标合同
 
@@ -79,7 +81,7 @@ T[base_link,camera_link]:
 | `/localization/candidates/mocap/base_pose` | `LocalizationSourceCandidate` | mocap adapter | `source_pose_candidate_only` |
 | `/localization/shadow/mocap/assumed_base_pose` | `ShadowPoseCandidate` | mocap adapter | 只读 shadow evidence |
 | `/localization/selected/pose` | `SelectedPoseCandidate` | selector | `selected_pose_candidate_only` |
-| `/mavros/vision_pose/pose_cov` | `PoseWithCovarianceStamped` | future output gateway | 当前 publisher 必须为 0 |
+| `/mavros/vision_pose/pose_cov` | `PoseWithCovarianceStamped` | Gate G3 output gateway | 当前 publisher 必须为 0 |
 
 adapter 只能生产 source-private candidate 或 shadow evidence。只有 selector 可以生产
 selected candidate；selected candidate 仍不是 canonical localization、TF、MAVROS、
@@ -103,6 +105,7 @@ YOPO control 或 flight authority。非主来源可以继续留下 source-privat
 | `cuvslam_localization_adapter` | cuVSLAM camera pose 到 `base_link` source candidate |
 | `mocap_localization_adapter` | VRPN pose 校验、mocap source candidate 和 shadow evidence |
 | `localization_source_selector` | 启动时单源订阅、一次 yaw-only 对齐和 selected pose seam |
+| `localization_output_gateway` | 默认禁用的 pose-only MAVROS 输出门禁；YP-230 TDD 中 |
 | `bag_contract_probe` | 对固定 rosbag 执行只读、确定性的合同审计 |
 
 仓库不包含 YOPO 模型运行时、cuVSLAM SDK、RealSense 驱动、MAVROS 实现、PX4 固件或
@@ -125,6 +128,7 @@ colcon build --symlink-install \
     cuvslam_localization_adapter \
     mocap_localization_adapter \
     localization_source_selector \
+    localization_output_gateway \
     bag_contract_probe \
   --event-handlers console_direct+
 
@@ -137,6 +141,7 @@ colcon test \
     cuvslam_localization_adapter \
     mocap_localization_adapter \
     localization_source_selector \
+    localization_output_gateway \
     bag_contract_probe \
   --event-handlers console_direct+
 
@@ -157,10 +162,11 @@ colcon test-result --verbose
 - [`TASKFLOW.md`](docs/yopo_integration/TASKFLOW.md)：唯一任务状态来源；
 - [`YP_200_MAVROS_PX4_EXTERNAL_VISION_AUDIT.md`](docs/yopo_integration/YP_200_MAVROS_PX4_EXTERNAL_VISION_AUDIT.md)：pose-only MAVROS/PX4 审计；
 - [`YP_210_EXTRINSIC_CONTRACT_20260723.md`](docs/yopo_integration/YP_210_EXTRINSIC_CONTRACT_20260723.md)：50 mm 外参合同；
-- [`YP_220_SOURCE_SELECTOR_CONTRACT.md`](docs/yopo_integration/YP_220_SOURCE_SELECTOR_CONTRACT.md)：selector 详细合同与验收范围。
+- [`YP_220_SOURCE_SELECTOR_CONTRACT.md`](docs/yopo_integration/YP_220_SOURCE_SELECTOR_CONTRACT.md)：selector 详细合同与验收范围；
+- [`YP_230_OUTPUT_GATEWAY_CONTRACT.md`](docs/yopo_integration/YP_230_OUTPUT_GATEWAY_CONTRACT.md)：默认禁用的 pose-only gateway 合同。
 
 ## 7. 当前阶段
 
-Gate G2、YP-200 和 YP-210 的证据已经记录；`YP-220` 仍为 `IN_PROGRESS`，等待目标
-Jetson 的干净 build、test、lint 和证据绑定。Gate G3、external vision、YOPO 主动
-输出、SO3、OFFBOARD、解锁和实机飞行均未授权。
+Gate G2、YP-200、YP-210 和 YP-220 已通过并绑定证据；`YP-230` 正在执行默认
+disabled gateway 的 TDD 红阶段。Gate G3、external vision、YOPO 主动输出、SO3、
+OFFBOARD、解锁和实机飞行均未授权。
