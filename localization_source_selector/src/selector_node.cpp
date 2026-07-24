@@ -230,10 +230,10 @@ LocalizationSourceSelector::LocalizationSourceSelector(const rclcpp::NodeOptions
   }
 
   const auto require_unremapped_topic = [this](const std::string & topic) {
-    if (get_node_topics_interface()->resolve_topic_name(topic, false) != topic) {
-      throw std::runtime_error("ROS remapping of selector contract topics is forbidden");
-    }
-  };
+      if (get_node_topics_interface()->resolve_topic_name(topic, false) != topic) {
+        throw std::runtime_error("ROS remapping of selector contract topics is forbidden");
+      }
+    };
   require_unremapped_topic(contract_.input.topic);
   require_unremapped_topic(contract_.output.topic);
   require_unremapped_topic("/diagnostics");
