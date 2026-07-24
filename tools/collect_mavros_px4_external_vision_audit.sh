@@ -9,6 +9,7 @@ set -u
 
 error_count=0
 warning_count=0
+expected_px4_custom_revision=99c40407ff000000
 
 section()
 {
@@ -22,6 +23,7 @@ show_topic_endpoint()
   expected_type="$3"
   expected_endpoint="$4"
   expected_node="$5"
+  expected_publisher_count="$6"
   printf '\n----- %s -----\n' "$topic"
   endpoint_output="$(timeout 5s ros2 topic info --verbose "$topic" 2>&1)"
   endpoint_rc=$?
@@ -33,7 +35,18 @@ show_topic_endpoint()
     else
       warning_count=$((warning_count + 1))
     fi
-  elif printf '%s\n' "$endpoint_output" | awk \
+  else
+    publisher_count="$(printf '%s\n' "$endpoint_output" | awk \
+      '/^Publisher count:/ {print $3; exit}')"
+    if [ "$publisher_count" = "$expected_publisher_count" ]; then
+      echo "publisher_authority=VERIFIED"
+    else
+      printf 'publisher_authority=NOT_VERIFIED expected=%s actual=%s\n' \
+        "$expected_publisher_count" "${publisher_count:-UNAVAILABLE}"
+      error_count=$((error_count + 1))
+    fi
+
+    if printf '%s\n' "$endpoint_output" | awk \
     -v expected_type="$expected_type" \
     -v expected_endpoint="$expected_endpoint" \
     -v expected_node="$expected_node" '
@@ -49,14 +62,15 @@ show_topic_endpoint()
       }
       END {exit found ? 0 : 1}
     '
-  then
-    echo "endpoint_contract=VERIFIED"
-  else
-    echo "endpoint_contract=NOT_VERIFIED"
-    if [ "$requirement" = "required" ]; then
-      error_count=$((error_count + 1))
+    then
+      echo "endpoint_contract=VERIFIED"
     else
-      warning_count=$((warning_count + 1))
+      echo "endpoint_contract=NOT_VERIFIED"
+      if [ "$requirement" = "required" ]; then
+        error_count=$((error_count + 1))
+      else
+        warning_count=$((warning_count + 1))
+      fi
     fi
   fi
 }
@@ -65,17 +79,43 @@ read_px4_parameter()
 {
   parameter="$1"
   printf '\n----- %s -----\n' "$parameter"
-  parameter_output="$(timeout 10s ros2 service call \
-    /mavros/param/get mavros_msgs/srv/ParamGet \
-    "{param_id: '${parameter}'}" 2>&1)"
+  parameter_output="$(timeout 10s ros2 param get \
+    /mavros/param "$parameter" 2>&1)"
   parameter_rc=$?
   printf '%s\n' "$parameter_output"
   if [ "$parameter_rc" -ne 0 ] || \
-    { [[ "$parameter_output" != *"success=True"* ]] && \
-      [[ "$parameter_output" != *"success: true"* ]]; }
+    [[ "$parameter_output" == *"Parameter not set"* ]] || \
+    [[ "$parameter_output" == *"not declared"* ]] || \
+    ! printf '%s\n' "$parameter_output" | \
+      grep -Eq '^(Integer|Double) value is:'
   then
     error_count=$((error_count + 1))
+    echo "parameter_read=NOT_VERIFIED"
+  else
+    echo "parameter_read=VERIFIED"
   fi
+}
+
+wait_for_px4_parameter_cache()
+{
+  attempt=1
+  while [ "$attempt" -le 15 ]; do
+    cache_probe="$(timeout 5s ros2 param get \
+      /mavros/param EKF2_EV_CTRL 2>&1)"
+    cache_probe_rc=$?
+    if [ "$cache_probe_rc" -eq 0 ] && \
+      printf '%s\n' "$cache_probe" | \
+        grep -Eq '^(Integer|Double) value is:'
+    then
+      printf 'px4_parameter_cache=READY attempts=%d\n' "$attempt"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  printf '%s\n' "$cache_probe"
+  echo "px4_parameter_cache=NOT_READY"
+  return 1
 }
 
 section "Capture context"
@@ -128,7 +168,8 @@ for interface in \
   geometry_msgs/msg/PoseWithCovarianceStamped \
   nav_msgs/msg/Odometry \
   mavros_msgs/msg/TimesyncStatus \
-  mavros_msgs/srv/ParamGet
+  mavros_msgs/srv/VehicleInfoGet \
+  rcl_interfaces/srv/GetParameters
 do
   printf '\n----- %s -----\n' "$interface"
   if ! ros2 interface show "$interface" 2>&1; then
@@ -148,18 +189,29 @@ do
     error_count=$((error_count + 1))
   fi
 done
-printf '\n----- vision_pose tf.listen -----\n'
+printf '\n----- /mavros/param -----\n'
+if ! timeout 10s ros2 node info /mavros/param 2>&1; then
+  error_count=$((error_count + 1))
+fi
+printf '\n----- vision_pose tf/listen -----\n'
 tf_listen_output="$(timeout 5s ros2 param get \
-  /mavros/vision_pose tf.listen 2>&1)"
+  /mavros/vision_pose tf/listen 2>&1)"
 tf_listen_rc=$?
 printf '%s\n' "$tf_listen_output"
-if [ "$tf_listen_rc" -ne 0 ] || \
-  [[ "$tf_listen_output" != *"Boolean value is: False"* ]]
+if [ "$tf_listen_rc" -eq 0 ] && \
+  printf '%s\n' "$tf_listen_output" | \
+    grep -Fxq 'Boolean value is: False'
 then
+  echo "vision_pose_tf_listener=DISABLED_EXPLICIT"
+elif [[ "$tf_listen_output" == *"Boolean value is: True"* ]]; then
+  error_count=$((error_count + 1))
+  echo "vision_pose_tf_listener=ENABLED_NOT_ALLOWED"
+elif [ "$tf_listen_rc" -ne 0 ]; then
   error_count=$((error_count + 1))
   echo "vision_pose_tf_listener=NOT_VERIFIED_DISABLED"
 else
-  echo "vision_pose_tf_listener=DISABLED"
+  error_count=$((error_count + 1))
+  echo "vision_pose_tf_listener=UNEXPECTED_PARAMETER_RESPONSE"
 fi
 for parameter in \
   fcu_url \
@@ -180,24 +232,24 @@ done
 
 section "External-vision endpoint graph"
 show_topic_endpoint \
-  /mavros/state required mavros_msgs/msg/State PUBLISHER sys
+  /mavros/state required mavros_msgs/msg/State PUBLISHER sys 1
 show_topic_endpoint \
   /mavros/local_position/odom required nav_msgs/msg/Odometry PUBLISHER \
-  local_position
+  local_position 1
 show_topic_endpoint \
-  /mavros/timesync_status required mavros_msgs/msg/TimesyncStatus PUBLISHER time
+  /mavros/timesync_status required mavros_msgs/msg/TimesyncStatus PUBLISHER time 1
 show_topic_endpoint \
   /mavros/vision_pose/pose_cov required \
-  geometry_msgs/msg/PoseWithCovarianceStamped SUBSCRIPTION vision_pose
+  geometry_msgs/msg/PoseWithCovarianceStamped SUBSCRIPTION vision_pose 0
 show_topic_endpoint \
   /mavros/vision_pose/pose optional geometry_msgs/msg/PoseStamped SUBSCRIPTION \
-  vision_pose
+  vision_pose 0
 show_topic_endpoint \
-  /mavros/odometry/out optional nav_msgs/msg/Odometry SUBSCRIPTION odometry
+  /mavros/odometry/out optional nav_msgs/msg/Odometry SUBSCRIPTION odometry 0
 show_topic_endpoint \
-  /mavros/mocap/pose optional geometry_msgs/msg/PoseStamped SUBSCRIPTION mocap
+  /mavros/mocap/pose optional geometry_msgs/msg/PoseStamped SUBSCRIPTION mocap 0
 show_topic_endpoint \
-  /mavros/odometry/in optional nav_msgs/msg/Odometry PUBLISHER odometry
+  /mavros/odometry/in optional nav_msgs/msg/Odometry PUBLISHER odometry 1
 
 section "External-vision interface decision"
 echo "selected_input=/mavros/vision_pose/pose_cov"
@@ -216,6 +268,34 @@ if [ "$state_rc" -ne 0 ]; then
   error_count=$((error_count + 1))
 fi
 
+printf '\n----- PX4 vehicle revision -----\n'
+vehicle_info_type="$(timeout 5s ros2 service type \
+  /mavros/vehicle_info_get 2>/dev/null)"
+vehicle_info_type_rc=$?
+printf 'vehicle_info_service_type=%s\n' "${vehicle_info_type:-UNAVAILABLE}"
+if [ "$vehicle_info_type_rc" -eq 0 ] && \
+  [ "$vehicle_info_type" = "mavros_msgs/srv/VehicleInfoGet" ]
+then
+  vehicle_info_output="$(timeout 10s ros2 service call \
+    /mavros/vehicle_info_get "$vehicle_info_type" '{}' 2>&1)"
+  vehicle_info_rc=$?
+  printf '%s\n' "$vehicle_info_output"
+  if [ "$vehicle_info_rc" -ne 0 ] || \
+    { [[ "$vehicle_info_output" != *"success=True"* ]] && \
+      [[ "$vehicle_info_output" != *"success: true"* ]]; } || \
+    [[ "$vehicle_info_output" != \
+      *"flight_custom_version='${expected_px4_custom_revision}'"* ]]
+  then
+    error_count=$((error_count + 1))
+    echo "px4_revision=NOT_VERIFIED"
+  else
+    echo "px4_revision=VERIFIED_${expected_px4_custom_revision}"
+  fi
+else
+  error_count=$((error_count + 1))
+  echo "px4_revision=NOT_VERIFIED"
+fi
+
 section "Read-only runtime samples"
 if ! timeout 5s ros2 topic echo /mavros/timesync_status \
   mavros_msgs/msg/TimesyncStatus --once 2>&1
@@ -229,36 +309,35 @@ then
 fi
 
 section "Minimal PX4 external-vision parameters"
-param_get_type="$(
-  timeout 5s ros2 service type /mavros/param/get 2>/dev/null || true
-)"
-printf 'param_get_service_type=%s\n' "${param_get_type:-UNAVAILABLE}"
 if [[ "$state_output" == *"connected: true"* ]] && \
-  [[ "$state_output" == *"armed: false"* ]] && \
-  [[ "$param_get_type" == "mavros_msgs/srv/ParamGet" ]]
+  [[ "$state_output" == *"armed: false"* ]]
 then
-  for parameter in \
-    EKF2_EV_CTRL \
-    EKF2_EV_DELAY \
-    EKF2_EV_NOISE_MD \
-    EKF2_EV_QMIN \
-    EKF2_EV_POS_X \
-    EKF2_EV_POS_Y \
-    EKF2_EV_POS_Z \
-    EKF2_EVP_NOISE \
-    EKF2_EVP_GATE \
-    EKF2_EVV_NOISE \
-    EKF2_EVV_GATE \
-    EKF2_EVA_NOISE \
-    EKF2_HGT_REF \
-    EKF2_GPS_CTRL \
-    EKF2_BARO_CTRL \
-    EKF2_RNG_CTRL \
-    EKF2_MAG_TYPE \
-    EKF2_NOAID_TOUT
-  do
-    read_px4_parameter "$parameter"
-  done
+  if wait_for_px4_parameter_cache; then
+    for parameter in \
+      EKF2_EV_CTRL \
+      EKF2_EV_DELAY \
+      EKF2_EV_NOISE_MD \
+      EKF2_EV_QMIN \
+      EKF2_EV_POS_X \
+      EKF2_EV_POS_Y \
+      EKF2_EV_POS_Z \
+      EKF2_EVP_NOISE \
+      EKF2_EVP_GATE \
+      EKF2_EVV_NOISE \
+      EKF2_EVV_GATE \
+      EKF2_EVA_NOISE \
+      EKF2_HGT_REF \
+      EKF2_GPS_CTRL \
+      EKF2_BARO_CTRL \
+      EKF2_RNG_CTRL \
+      EKF2_MAG_TYPE \
+      EKF2_NOAID_TOUT
+    do
+      read_px4_parameter "$parameter"
+    done
+  else
+    error_count=$((error_count + 1))
+  fi
 else
   echo "parameter_reads=SKIPPED_REQUIRES_CONNECTED_AND_DISARMED_PX4"
   error_count=$((error_count + 1))

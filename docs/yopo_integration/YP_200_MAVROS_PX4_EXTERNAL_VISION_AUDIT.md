@@ -8,7 +8,7 @@ selected_candidate=/mavros/vision_pose/pose_cov
 selected_message=geometry_msgs/msg/PoseWithCovarianceStamped
 velocity_measurement=ABSENT
 covariance_measurement=UNKNOWN_ALL_NAN
-runtime_endpoint_evidence=PENDING
+runtime_endpoint_evidence=OBSERVED_PENDING_CLEAN_RERUN
 runtime_nan_passthrough_evidence=DEFERRED_TO_GATE_G3
 px4_parameter_evidence=PENDING
 external_vision_output_authorization=DENIED
@@ -18,9 +18,10 @@ flight_authorization=DENIED
 ```
 
 本报告完成源码层接口选择，不构成 Gate G3、OFFBOARD、解锁或飞行授权。运行时
-endpoint 和实际 PX4 参数尚未取证，因此 `YP-200` 仍保持 `IN_PROGRESS`。NaN
-covariance 透传必须由实现后的 gateway 在 Gate G3 拆桨台架验证，不作为尚未实现
-gateway 时的循环前置条件。
+endpoint 已在首次不完整审计中观察通过，但仍需修订版 clean rerun 固化；实际 PX4
+参数尚未取证，因此 `YP-200` 仍保持 `IN_PROGRESS`。NaN covariance 透传必须由
+实现后的 gateway 在 Gate G3 拆桨台架验证，不作为尚未实现 gateway 时的循环前置
+条件。
 
 ## 1. 固定版本与一手来源
 
@@ -233,8 +234,9 @@ position/orientation variance 仍为 non-finite，并实际采用参数噪声。
 
 参数名称、bit 定义和噪声策略均来自 PX4 v1.15.4
 [`module.yaml`](https://github.com/PX4/PX4-Autopilot/blob/99c40407ffd7ac184e2d7b4b293f36f10fe561ef/src/modules/ekf2/module.yaml#L105-L680)。
-读取证据必须包含每项 service success、整数/实数值、PX4 revision、时间和 SHA-256；
-缺项或读取失败不得用默认值补齐。
+读取证据必须包含 `/mavros/param` 标准 ROS 2 parameter API 的每项成功结果、
+整数/实数值、同一次 `/mavros/vehicle_info_get` 返回的 PX4 revision、时间和
+SHA-256；缺项或读取失败不得用默认值补齐。
 
 ## 8. Gate G3 运行时待验证项
 
@@ -246,16 +248,17 @@ position/orientation variance 仍为 non-finite，并实际采用参数噪声。
 - `/mavros/timesync_status` publisher 是 Node `time`、namespace `/mavros`；
 - `/mavros/local_position/odom` publisher 是 Node `local_position`、namespace `/mavros`；
 - `/mavros/vision_pose/pose_cov` 恰有一个 MAVROS subscription，Node `vision_pose`、
-  namespace `/mavros`、类型完全匹配；
+  namespace `/mavros`、类型完全匹配，且 Gate G3 前 publisher count 为 0；
 - `/mavros/odometry/out` 的 MAVROS subscriber 是 Node `odometry`，但 gateway publisher
   必须为 0；
 - `/mavros/vision_pose/pose`、`/mavros/mocap/pose` 和其他 external-vision 候选入口的
   非授权 publisher 必须为 0；
-- `vision_pose.tf/listen=false`；
+- `/mavros/vision_pose` 必须对 `tf/listen` 明确返回 `false`；未设置、无法读取或
+  返回 `true` 均不通过；
 - `ROS_DOMAIN_ID=42` 且 `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`。
 
-校验必须在同一个 endpoint block 内同时匹配 Node name、namespace、方向、type 和
-count，禁止只用输出中的独立字符串拼接判定通过。
+校验必须在同一个 endpoint block 内同时匹配 Node name、namespace、方向和 type，
+并独立核对 topic 的全局 publisher count；禁止只用输出中的独立字符串拼接判定通过。
 
 在 Jetson 宿主机、MAVROS 已连接且 PX4 保持未解锁时执行：
 
@@ -268,18 +271,37 @@ source /opt/ros/humble/setup.bash
 
 set -o pipefail
 bash tools/collect_mavros_px4_external_vision_audit.sh \
-  | tee /home/nvidia/mavros_px4_external_vision_audit_20260723.txt
+  | tee /home/nvidia/mavros_px4_external_vision_audit_20260724_v2.txt
 AUDIT_RC=${PIPESTATUS[0]}
 
-sha256sum /home/nvidia/mavros_px4_external_vision_audit_20260723.txt \
-  | tee /home/nvidia/mavros_px4_external_vision_audit_20260723.SHA256
+sha256sum /home/nvidia/mavros_px4_external_vision_audit_20260724_v2.txt \
+  | tee /home/nvidia/mavros_px4_external_vision_audit_20260724_v2.SHA256
 
 echo "audit_exit_code=$AUDIT_RC"
 ```
 
 只有 `errors=0`、`analysis=READ_ONLY_AUDIT_COMPLETE` 且 `audit_exit_code=0` 才能
-作为完整的只读运行时证据。`warnings` 必须逐项解释，但候选接口未加载等关键缺口
-会计入 error 并返回退出码 2。
+作为完整的只读运行时证据。`warnings` 必须逐项解释；选定的
+`/mavros/vision_pose/pose_cov`、PX4 revision 或必要参数等关键缺口会计入 error 并
+返回退出码 2。未选用插件 endpoint 不存在可以记为 warning，但其输入 topic 一旦
+存在非授权 publisher，必须计入 error。
+
+#### 2026-07-24 首次运行
+
+| 字段 | 结果 |
+| --- | --- |
+| 时间 | `2026-07-24T00:51:40+00:00` |
+| 输出 SHA-256 | `d520e92ad3d95e5b66f8991f053ca44a189b9165655779de8e77af2de6318cd9` |
+| endpoint | 所有必需与候选 MAVROS endpoint 的 node、namespace、type 和方向均通过 |
+| PX4 状态 | connected、disarmed、`STABILIZED` |
+| timesync | 样本可读，round-trip `1.301682 ms` |
+| 结果 | `INCOMPLETE`，`errors=2`，`audit_exit_code=2` |
+
+两个 error 都属于采集脚本与 MAVROS 2.14 ROS 2 参数 API 的兼容性错误，不是
+flight stack 故障：脚本使用了错误的 `tf.listen` 名称，而运行时实际名称是
+`tf/listen`；脚本还查询了已废弃且未提供的 `/mavros/param/get` service，而安装的
+接口定义明确要求 ROS 2 parameter API。修订版改为从 `/mavros/param` 只读参数。
+该次输出只保留为修复前证据，不能用于关闭 `YP-200`。
 
 ### 8.2 拆桨、人工批准后的注入证据
 
