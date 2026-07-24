@@ -378,13 +378,13 @@ T[base_link,camera_link] =
 
 影子模式用于检查坐标、频率、时间、协方差和故障门禁，不向 PX4 发送数据。`T[mavros_local,odom]` 在单次 localization epoch 内必须保持常量；候选禁止使用可能因全局校正而跳变的 `T[map,odom]`。
 
-当前原始 cuVSLAM `odom` 的初始 yaw 可以任意。它不能因为名字叫 `odom` 就直接视为 MAVROS 所需的 parent frame。gateway 启用前必须固定并验证 `T[mavros_local,odom]`；这项连续局部对齐与全局 `T[map,odom]` 是两个不同合同。影子 candidate 不能通过 remap 直接发送到 `/mavros/odometry/out`。
+当前原始 cuVSLAM `odom` 的初始 yaw 可以任意。它不能因为名字叫 `odom` 就直接视为 MAVROS 所需的 parent frame。gateway 启用前必须固定并验证 `T[mavros_local,odom]`；这项连续局部对齐与全局 `T[map,odom]` 是两个不同合同。影子 candidate 不能通过 remap 直接发送到 `/mavros/vision_pose/pose_cov`。
 
-### 8.4 `/mavros/odometry/out`：默认禁止
+### 8.4 MAVROS external vision：默认禁止
 
 输出拓扑按模式固定，不允许“节点存在但是否发送不确定”：
 
-| 模式 | gateway | `/localization/mavros_candidate` | `/mavros/odometry/out` |
+| 模式 | gateway | `/localization/mavros_candidate` | `/mavros/vision_pose/pose_cov` |
 | --- | --- | --- | --- |
 | default | 不启动 | publisher=0，messages=0 | publisher=0，messages=0 |
 | shadow | 启动 | publisher=1 | publisher=0，messages=0 |
@@ -392,12 +392,14 @@ T[base_link,camera_link] =
 
 只有单独 gateway、显式 bench 配置和独立验收同时满足时，才允许进入 bench transmit：
 
-- MAVROS 输入消息的 `header.frame_id` 必须是固定 plugin commit 明确支持的值；不得把内部 `mavros_local` 字符串直接发给 MAVROS；
-- parent 必须由连续且已验证的 `T[mavros_local,odom]` 生成，child 必须表示 ROS FLU `base_link`；
-- `/mavros/odometry/out` 只能存在一个 publisher；
+- MAVROS 输入 Pose 必须由连续且已验证的 `T[mavros_local,odom]` 生成并表示 ROS FLU `base_link`；
+- `/mavros/vision_pose/pose_cov` 只能存在一个 publisher；
+- 未知 pose covariance 必须显式使用全 `NaN`，不得使用全零假装零不确定度；
+- `/mavros/odometry/out` 不用于 pose-only 来源，因为该插件会无条件发送 twist；
+- `/mavros/vision_pose/pose` 不使用，因为该插件会为缺失 covariance 构造全零数组；
 - 禁止手工对四元数 `y/z` 取反；
 - 禁止手工提前转换为 NED/FRD；
-- 当前 MAVROS 2.14.0 工作副本观察到 ROS->FCU 订阅端是 `~/out`，相关分支使用 `MAV_FRAME_LOCAL_FRD`/`MAV_FRAME_BODY_FRD` enum；阶段 4 必须补齐精确 commit、文件、函数、frame-id 分支和转换函数记录；
+- MAVROS 2.14.0 `vision_pose` plugin 把 Pose 转成 MAVLink `VISION_POSITION_ESTIMATE`；PX4 1.15.4 接收后保持 velocity 为未知；
 - MAVLink frame enum 不是 ROS TF frame。源码审计也不代替台架测试；只有插件加载、topic 方向、消息 frame、变换结果和实际 MAVLink 输出通过验收后，才能把该发送路径视为运行合同；
 - gateway 不得调用 arming、mode、OFFBOARD 或 PX4 参数服务。
 
@@ -576,14 +578,14 @@ localization_state_adapter/
 ### 阶段 4：MAVROS gateway 影子模式
 
 - 只发布 `/localization/mavros_candidate`；
-- 在持续健康输入下证明 `/mavros/odometry/out` publisher count 与消息数均严格为零；
+- 在持续健康输入下证明 `/mavros/vision_pose/pose_cov` publisher count 与消息数均严格为零；
 - 检查 `T[mavros_local,odom]`、时间、频率、frame、协方差和故障锁存；
 - 固定 MAVROS commit，并记录 `header.frame_id` 到 MAVLink frame enum 的实际源码分支。
 
 ### 阶段 5：PX4 非融合传输
 
 - 拆桨、未解锁、固定平台；
-- 使用独立的非默认 bench 配置显式进入 `bench transmit`，并确认 `/mavros/odometry/out` publisher=1；
+- 使用独立的非默认 bench 配置显式进入 `bench transmit`，并确认 `/mavros/vision_pose/pose_cov` publisher=1；
 - 只有全部健康门禁通过时允许产生消息，任一故障立即停止消息；验收后恢复 `shadow` 或 `default` 模式；
 - 验证 MAVROS plugin、topic 方向、TF 和 MAVLink 收包；
 - PX4 必须保持 external vision 融合关闭；
@@ -609,7 +611,7 @@ localization_state_adapter/
 - 时间戳零值、重复、回退、未来、stale 和恢复测试；
 - tracking lost、TF 缺失、定位重置和大跳变故障注入；
 - rosbag 回放结果可重复；
-- 默认 launch 不创建 `/mavros/odometry/out` publisher 的测试；
+- 默认 launch 不创建 `/mavros/vision_pose/pose_cov` publisher 的测试；
 - 文档、配置、消息合同与测试同步更新。
 
 ### 14.2 阶段退出验收
@@ -618,7 +620,7 @@ localization_state_adapter/
 | --- | --- |
 | 2 | Jetson 单轴刚体运动、静止漂移、已知距离、故障注入和至少 30 分钟被动运行 |
 | 3 | YOPO PASSIVE 的 `+X/+Y/+Z` 目标、世界速度、深度方向和无控制输出验证 |
-| 4 | shadow candidate 审计、`/mavros/odometry/out` publisher=0/messages=0、gateway 锁存测试 |
+| 4 | shadow candidate 审计、`/mavros/vision_pose/pose_cov` publisher=0/messages=0、gateway 锁存测试 |
 | 5 | 拆桨未解锁条件下的 plugin、topic、frame enum、转换结果和 MAVLink 收包验证；EKF2 不融合 |
 | 6（仓库外） | 单项 EKF2 融合、innovation、延迟、超时、reset 和 ULog 验收；结果作为外部证据链接回本仓库 |
 
@@ -681,7 +683,7 @@ localization_state_adapter/
 ```text
 /state/odom
 /localization/mavros_candidate
-/mavros/odometry/out
+/mavros/vision_pose/pose_cov
 ```
 
 README 暂不提供生产启动命令。只有代码、配置、单元测试、rosbag 回放和 Jetson 被动验收全部完成后，才能加入正式 build、launch 和停止流程。

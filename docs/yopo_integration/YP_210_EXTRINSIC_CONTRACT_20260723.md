@@ -1,7 +1,7 @@
 # YP-210 cuVSLAM 相机外参合同
 
 日期：2026-07-23  
-状态：`IN_PROGRESS`，实现已完成，等待 Jetson 构建与测试证据。
+状态：`PASSED`。
 
 ## 固定事实
 
@@ -76,5 +76,17 @@ colcon test \
 colcon test-result --verbose
 ```
 
-通过条件：两个 package 构建成功、所有测试零失败，并在本文件追加 Jetson commit、
-测试总数和输出摘要后，才能把 `YP-210` 更新为 `PASSED`。
+## 完成记录
+
+| 字段 | 结果 |
+| --- | --- |
+| revision | `f300bec` (`Approve fixed cuVSLAM camera extrinsic`) |
+| 目标平台 | Jetson localization-runtime，ROS 2 Humble |
+| 构建范围 | `localization_contracts`、`cuvslam_localization_adapter` |
+| 构建结果 | 2 packages finished |
+| package tests | `cuvslam_localization_adapter`: 10/10 passed |
+| workspace results | 417 tests，0 errors，0 failures，42 skipped |
+| 结论 | `PASS_EXTRINSIC_CONTRACT` |
+
+`YP-210` 的代码、配置 provenance、变换方向和 fail-closed 发布权测试全部通过。
+该结果只关闭外参任务，不构成 Gate G3、PX4 external vision 或飞行授权。

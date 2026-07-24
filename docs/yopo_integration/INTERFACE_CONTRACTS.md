@@ -94,7 +94,7 @@ Python 环境或容器动态库绕过消息合同。
 | `/droneyee207/pose` | `geometry_msgs/msg/PoseStamped` | VRPN | `world -> mocap_rigid_body` |
 | `/localization/shadow/mocap/assumed_base_pose` | `ShadowPoseCandidate` | mocap adapter | `mocap_world -> base_link` 影子候选 |
 | `/localization/odometry` | `nav_msgs/msg/Odometry` | selected localization adapter | 标准 `odom -> base_link`；Twist 若存在则表达于 `base_link` |
-| PX4 external-vision input | 待 MAVROS 2.14 审计固定 | localization output gateway | 只发送当前主定位源真实具备的字段 |
+| `/mavros/vision_pose/pose_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | localization output gateway | 选定的 pose-only PX4 输入候选；当前仍禁止发布 |
 | `/mavros/local_position/odom` | `nav_msgs/msg/Odometry` | MAVROS/PX4 | PX4 EKF 融合状态；实际 frame 必须启动时验证 |
 | `/state/odom` | `nav_msgs/msg/Odometry` | `yopo_state_bridge` | YOPO legacy：Pose 在 `map`，线速度表达于 `map` |
 | D435 depth topic | `sensor_msgs/msg/Image` | RealSense | 原生深度；实际名称由 bringup 合同固定 |
@@ -106,12 +106,27 @@ localization-runtime 是 D435I 和原生深度 topic 的唯一 publisher authori
 runtime 只订阅标准深度和状态接口。MAVROS 与 PX4 的接口审计在宿主/控制环境完成，
 不要求 localization-runtime 安装 MAVROS 可执行包。
 
-### 6.1 PX4 外部视觉接口未决项
+### 6.1 PX4 外部视觉接口选择
 
-首选候选仍是 `/mavros/odometry/out`，但启用前必须对 MAVROS 2.14 和 PX4 当前
-固件做源码与台架审计。动捕只提供 Pose，因此 gateway 不得把零速度伪造成测量值。
-若 odometry 接口无法明确表示速度不可用，必须改用经验证的 pose-only external
-vision 接口。该选择不改变定位适配器的坐标合同。
+MAVROS 2.14/PX4 1.15.4 源码审计选择 `/mavros/vision_pose/pose_cov` 作为两个
+pose-only 定位源的唯一 gateway 候选。gateway 必须把未知的 6x6 pose covariance
+全部填写为 IEEE-754 `NaN`；这表示“未知”，不是测量零方差。MAVROS 负责
+ENU/FLU 到 NED/FRD 的边界转换，ROS 侧禁止预转换。
+
+以下接口不用于首版 gateway：
+
+- `/mavros/odometry/out`：MAVROS 会无条件序列化 twist，ROS 默认零会伪造成
+  速度测量；
+- `/mavros/vision_pose/pose`：MAVROS 会为缺失 covariance 构造全零数组；
+- `/mavros/mocap/pose`：不会作为 cuVSLAM 与动捕共用的规范 gateway 边界。
+
+PX4 接收 `VISION_POSITION_ESTIMATE` 后只得到 pose，velocity 保持 `NaN/UNKNOWN`。
+`EKF2_EV_CTRL` 的 velocity 位必须保持关闭。由于 `YP-210` 已把相机 Pose 转换到
+`base_link`，PX4 的 `EKF2_EV_POS_X/Y/Z` 目标值为零，禁止再次补偿 50 mm。
+
+全 `NaN` covariance 经 MAVROS 到 PX4 的透传、PX4 参数噪声回退和实际 endpoint
+仍须台架验证；完成前该 topic 必须保持 publisher count 为零，也不构成 Gate G3
+或飞行授权。
 
 ### 6.2 `/state/odom` 的非标准语义
 
