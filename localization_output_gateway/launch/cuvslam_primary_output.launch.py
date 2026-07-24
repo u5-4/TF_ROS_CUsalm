@@ -25,22 +25,22 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     """Create the immutable cuVSLAM-primary output path."""
-    gateway_share = get_package_share_directory("localization_output_gateway")
-    selector_share = get_package_share_directory("localization_source_selector")
+    gateway_share = get_package_share_directory('localization_output_gateway')
+    selector_share = get_package_share_directory('localization_source_selector')
     gateway_contract = os.path.join(
-        gateway_share, "config", "cuvslam_primary.contract.yaml")
+        gateway_share, 'config', 'cuvslam_primary.contract.yaml')
     selector_launch = os.path.join(
-        selector_share, "launch", "cuvslam_primary_selector.launch.py")
+        selector_share, 'launch', 'cuvslam_primary_selector.launch.py')
     return LaunchDescription([
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(selector_launch)),
         Node(
-            package="localization_output_gateway",
-            executable="localization_output_gateway_node",
-            name="localization_output_gateway",
-            namespace="/",
-            output="screen",
-            parameters=[{"contract_file": gateway_contract}],
+            package='localization_output_gateway',
+            executable='localization_output_gateway_node',
+            name='localization_output_gateway',
+            namespace='/',
+            output='screen',
+            parameters=[{'contract_file': gateway_contract}],
             respawn=False,
         ),
     ])

@@ -23,15 +23,15 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     """Create the immutable disabled gateway launch description."""
-    share = get_package_share_directory("localization_output_gateway")
-    contract_file = os.path.join(share, "config", "disabled.contract.yaml")
+    share = get_package_share_directory('localization_output_gateway')
+    contract_file = os.path.join(share, 'config', 'disabled.contract.yaml')
     return LaunchDescription([
         Node(
-            package="localization_output_gateway",
-            executable="localization_output_gateway_node",
-            name="localization_output_gateway",
-            output="screen",
-            parameters=[{"contract_file": contract_file}],
+            package='localization_output_gateway',
+            executable='localization_output_gateway_node',
+            name='localization_output_gateway',
+            output='screen',
+            parameters=[{'contract_file': contract_file}],
             respawn=False,
         ),
     ])

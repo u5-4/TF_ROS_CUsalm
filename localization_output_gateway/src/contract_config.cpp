@@ -14,6 +14,8 @@
 
 #include "localization_output_gateway/contract_config.hpp"
 
+#include <yaml-cpp/yaml.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -22,8 +24,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-#include <yaml-cpp/yaml.h>
 
 namespace localization_output_gateway
 {
@@ -227,13 +227,16 @@ MavrosContractConfig ParseMavros(const YAML::Node & node)
   return MavrosContractConfig{
     AbsoluteRosName(node["state_topic"], "mavros.state_topic"),
     NonemptyString(node["state_type"], "mavros.state_type"),
-    AbsoluteRosName(node["expected_state_publisher"],
+    AbsoluteRosName(
+      node["expected_state_publisher"],
       "mavros.expected_state_publisher"),
     AbsoluteRosName(node["timesync_topic"], "mavros.timesync_topic"),
     NonemptyString(node["timesync_type"], "mavros.timesync_type"),
-    AbsoluteRosName(node["expected_timesync_publisher"],
+    AbsoluteRosName(
+      node["expected_timesync_publisher"],
       "mavros.expected_timesync_publisher"),
-    AbsoluteRosName(node["expected_external_vision_subscriber"],
+    AbsoluteRosName(
+      node["expected_external_vision_subscriber"],
       "mavros.expected_external_vision_subscriber")};
 }
 
@@ -242,41 +245,55 @@ void ValidateContract(const ContractConfig & contract)
   if (contract.schema_version != 1) {
     throw std::runtime_error("gateway contract schema_version must be exactly 1");
   }
-  RequireEqual("node.expected_fqn", contract.expected_node_fqn,
+  RequireEqual(
+    "node.expected_fqn", contract.expected_node_fqn,
     "/localization_output_gateway");
   RequireEqual("input.topic", contract.input.topic, "/localization/selected/pose");
   RequireEqual("input.type", contract.input.type, kSelectedPoseType);
-  RequireEqual("input.expected_publisher", contract.input.expected_publisher,
+  RequireEqual(
+    "input.expected_publisher", contract.input.expected_publisher,
     "/localization_source_selector");
   RequireEqual("input.parent_frame", contract.input.parent_frame, "map");
-  RequireEqual("input.semantic_child_frame", contract.input.semantic_child_frame,
+  RequireEqual(
+    "input.semantic_child_frame", contract.input.semantic_child_frame,
     "base_link");
-  RequireEqual("input.authorization", contract.input.authorization,
+  RequireEqual(
+    "input.authorization", contract.input.authorization,
     "selected_pose_candidate_only");
   RequireEqual("diagnostics.topic", contract.diagnostics.topic, "/diagnostics");
-  RequireEqual("diagnostics.type", contract.diagnostics.type,
+  RequireEqual(
+    "diagnostics.type", contract.diagnostics.type,
     "diagnostic_msgs/msg/DiagnosticArray");
-  RequireEqual("diagnostics.expected_publisher", contract.diagnostics.expected_publisher,
+  RequireEqual(
+    "diagnostics.expected_publisher", contract.diagnostics.expected_publisher,
     "/localization_output_gateway");
-  RequireEqual("diagnostics.authorization", contract.diagnostics.authorization,
+  RequireEqual(
+    "diagnostics.authorization", contract.diagnostics.authorization,
     "diagnostics_only");
-  RequireEqual("external_vision_output.topic", contract.external_vision_output.topic,
+  RequireEqual(
+    "external_vision_output.topic", contract.external_vision_output.topic,
     "/mavros/vision_pose/pose_cov");
-  RequireEqual("external_vision_output.type", contract.external_vision_output.type,
+  RequireEqual(
+    "external_vision_output.type", contract.external_vision_output.type,
     "geometry_msgs/msg/PoseWithCovarianceStamped");
-  RequireEqual("canonical_odometry.topic", contract.canonical_odometry.topic,
+  RequireEqual(
+    "canonical_odometry.topic", contract.canonical_odometry.topic,
     "/localization/odometry");
-  RequireEqual("canonical_odometry.authorization",
+  RequireEqual(
+    "canonical_odometry.authorization",
     contract.canonical_odometry.authorization, "deferred");
-  RequireEqual("canonical_odometry.publisher_creation",
+  RequireEqual(
+    "canonical_odometry.publisher_creation",
     contract.canonical_odometry.publisher_creation, "forbidden");
 
   if (contract.profile == "disabled") {
     RequireEqual(
       "gateway_contract_id", contract.gateway_contract_id, kDisabledGatewayContractId);
-    RequireEqual("external_vision_output.authorization",
+    RequireEqual(
+      "external_vision_output.authorization",
       contract.external_vision_output.authorization, "denied");
-    RequireEqual("external_vision_output.publisher_creation",
+    RequireEqual(
+      "external_vision_output.publisher_creation",
       contract.external_vision_output.publisher_creation, "forbidden");
     if (!contract.input.expected_mode.empty() ||
       !contract.input.expected_selector_contract_id.empty() ||
@@ -290,30 +307,39 @@ void ValidateContract(const ContractConfig & contract)
     return;
   }
 
-  RequireEqual("external_vision_output.authorization",
+  RequireEqual(
+    "external_vision_output.authorization",
     contract.external_vision_output.authorization, "explicit_pose_only");
-  RequireEqual("external_vision_output.publisher_creation",
+  RequireEqual(
+    "external_vision_output.publisher_creation",
     contract.external_vision_output.publisher_creation, "required");
   RequireEqual("mavros.state_topic", contract.mavros.state_topic, "/mavros/state");
   RequireEqual("mavros.state_type", contract.mavros.state_type, "mavros_msgs/msg/State");
-  RequireEqual("mavros.expected_state_publisher",
+  RequireEqual(
+    "mavros.expected_state_publisher",
     contract.mavros.expected_state_publisher, "/mavros/sys");
-  RequireEqual("mavros.timesync_topic", contract.mavros.timesync_topic,
+  RequireEqual(
+    "mavros.timesync_topic", contract.mavros.timesync_topic,
     "/mavros/timesync_status");
-  RequireEqual("mavros.timesync_type", contract.mavros.timesync_type,
+  RequireEqual(
+    "mavros.timesync_type", contract.mavros.timesync_type,
     "mavros_msgs/msg/TimesyncStatus");
-  RequireEqual("mavros.expected_timesync_publisher",
+  RequireEqual(
+    "mavros.expected_timesync_publisher",
     contract.mavros.expected_timesync_publisher, "/mavros/time");
-  RequireEqual("mavros.expected_external_vision_subscriber",
+  RequireEqual(
+    "mavros.expected_external_vision_subscriber",
     contract.mavros.expected_external_vision_subscriber, "/mavros/vision_pose");
   if (contract.profile == "cuvslam_primary") {
     RequireEqual(
       "gateway_contract_id", contract.gateway_contract_id, kCuvslamGatewayContractId);
     RequireEqual("input.expected_mode", contract.input.expected_mode, "cuvslam_primary");
-    RequireEqual("input.expected_selector_contract_id",
+    RequireEqual(
+      "input.expected_selector_contract_id",
       contract.input.expected_selector_contract_id,
       "yopo_cuvslam_primary_selector_20260724_v1");
-    RequireEqual("input.expected_source_contract_id",
+    RequireEqual(
+      "input.expected_source_contract_id",
       contract.input.expected_source_contract_id,
       "d435i_fcu_cuvslam_shadow_20260723_v2");
     return;
@@ -322,10 +348,12 @@ void ValidateContract(const ContractConfig & contract)
     RequireEqual(
       "gateway_contract_id", contract.gateway_contract_id, kMocapGatewayContractId);
     RequireEqual("input.expected_mode", contract.input.expected_mode, "mocap_primary");
-    RequireEqual("input.expected_selector_contract_id",
+    RequireEqual(
+      "input.expected_selector_contract_id",
       contract.input.expected_selector_contract_id,
       "yopo_mocap_primary_selector_20260724_v1");
-    RequireEqual("input.expected_source_contract_id",
+    RequireEqual(
+      "input.expected_source_contract_id",
       contract.input.expected_source_contract_id,
       "droneyee207_mocap_shadow_20260722_v2");
     return;

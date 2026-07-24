@@ -68,11 +68,12 @@ protected:
 rclcpp::NodeOptions Options()
 {
   rclcpp::NodeOptions options;
-  options.parameter_overrides({
-    rclcpp::Parameter(
-      "contract_file", std::string(TEST_CONFIG_DIR) + "/" +
-      TEST_PROFILE + ".contract.yaml"),
-  });
+  options.parameter_overrides(
+      {
+        rclcpp::Parameter(
+          "contract_file", std::string(TEST_CONFIG_DIR) + "/" +
+          TEST_PROFILE + ".contract.yaml"),
+      });
   return options;
 }
 
@@ -134,7 +135,7 @@ bool DiagnosticHasValue(
         array.status.begin(), array.status.end(),
         [&key, &expected](const auto & status) {
           if (status.name !=
-            "/localization_output_gateway: localization output gateway")
+          "/localization_output_gateway: localization output gateway")
           {
             return false;
           }
@@ -191,12 +192,13 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
   executor.add_node(mavros_time);
   executor.add_node(mavros_vision);
 
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&]() {
         return selected_publisher->get_subscription_count() == 1U &&
-               state_publisher->get_subscription_count() == 1U &&
-               timesync_publisher->get_subscription_count() == 1U;
+        state_publisher->get_subscription_count() == 1U &&
+        timesync_publisher->get_subscription_count() == 1U;
       }));
 
   State state;
@@ -217,7 +219,8 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
       timesync_publisher->publish(timesync);
     };
 
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&diagnostics]() {
         return DiagnosticHasValue(
@@ -228,7 +231,8 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
 
   state.mode = "STABILIZED";
   state.armed = true;
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&diagnostics]() {
         return DiagnosticHasValue(
@@ -238,7 +242,8 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
   EXPECT_EQ(output_subscription->get_publisher_count(), 0U);
 
   state.armed = false;
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&]() {return output_subscription->get_publisher_count() == 1U;},
       publish_readiness));
@@ -258,13 +263,15 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
   EXPECT_EQ(first_output.pose.pose.orientation.y, first_input.pose.orientation.y);
   EXPECT_EQ(first_output.pose.pose.orientation.z, first_input.pose.orientation.z);
   EXPECT_EQ(first_output.pose.pose.orientation.w, first_input.pose.orientation.w);
-  EXPECT_TRUE(std::all_of(
-    first_output.pose.covariance.begin(), first_output.pose.covariance.end(),
-    [](const double value) {return std::isnan(value);}));
+  EXPECT_TRUE(
+    std::all_of(
+      first_output.pose.covariance.begin(), first_output.pose.covariance.end(),
+      [](const double value) {return std::isnan(value);}));
 
   diagnostics.clear();
   state.armed = true;
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&diagnostics]() {
         return DiagnosticHasValue(diagnostics, "mavros_armed", "1");
@@ -290,26 +297,29 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
       monitored_outputs.push_back(*message);
     });
   executor.add_node(monitor);
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&]() {return monitor_subscription->get_publisher_count() == 1U;}));
   auto third_input = Candidate(*selector);
   third_input.pose.position.x = 3.50;
   selected_publisher->publish(third_input);
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&]() {return outputs.size() == 3U && monitored_outputs.size() == 1U;}));
 
   const auto publishers = gateway->get_node_graph_interface()
     ->get_publisher_names_and_types_by_node(
-      gateway->get_name(), gateway->get_namespace());
+    gateway->get_name(), gateway->get_namespace());
   EXPECT_EQ(publishers.count("/mavros/vision_pose/pose_cov"), 1U);
   EXPECT_EQ(publishers.count("/localization/odometry"), 0U);
   EXPECT_EQ(publishers.count("/state/odom"), 0U);
   EXPECT_EQ(publishers.count("/mavros/setpoint_raw/attitude"), 0U);
 
   state.connected = false;
-  ASSERT_TRUE(SpinUntil(
+  ASSERT_TRUE(
+    SpinUntil(
       executor,
       [&]() {return output_subscription->get_publisher_count() == 0U;},
       [&]() {
@@ -320,7 +330,8 @@ TEST_F(ActivePoseOutput, GatesStartupThenCopiesPoseDuringManualArming)
   state.armed = false;
   publish_readiness();
   selected_publisher->publish(Candidate(*selector));
-  EXPECT_FALSE(SpinUntil(
+  EXPECT_FALSE(
+    SpinUntil(
       executor, [&outputs]() {return outputs.size() > 3U;}, {}, 250ms));
 
   (void)diagnostic_subscription;

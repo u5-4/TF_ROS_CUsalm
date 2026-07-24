@@ -468,6 +468,8 @@ bool LocalizationOutputGateway::MavrosOutputSubscriberIsValidLocked()
   output_subscription_count_ = endpoints.size();
   std::size_t matching_subscribers = 0U;
   bool expected_fqn_seen = false;
+  const bool output_subscriber_was_bound =
+    bound_output_subscriber_gid_.has_value() || external_vision_publisher_;
   PublisherGid matching_gid{};
   for (const auto & endpoint : endpoints) {
     if (FullyQualifiedNodeName(endpoint) !=
@@ -490,9 +492,7 @@ bool LocalizationOutputGateway::MavrosOutputSubscriberIsValidLocked()
     if (expected_fqn_seen) {
       ++authority_violations_;
       LatchLocked("MAVROS_EXTERNAL_VISION_SUBSCRIBER_AUTHORITY_MISMATCH");
-    } else if (bound_output_subscriber_gid_.has_value() ||
-      external_vision_publisher_)
-    {
+    } else if (output_subscriber_was_bound) {
       ++authority_violations_;
       LatchLocked("MAVROS_EXTERNAL_VISION_SUBSCRIBER_DISAPPEARED");
     } else {
@@ -697,13 +697,13 @@ void LocalizationOutputGateway::UpdateGraphLocked()
   bound_input_gid_ = input_gid;
 
   const auto validate_mavros_publisher = [this](
-      const std::string & topic,
-      const std::string & type,
-      const std::string & expected_publisher,
-      std::optional<PublisherGid> * bound_gid,
-      std::size_t * publisher_count,
-      const std::string & reason_prefix,
-      bool (*qos_validator)(const rmw_qos_profile_t &)) {
+    const std::string & topic,
+    const std::string & type,
+    const std::string & expected_publisher,
+    std::optional<PublisherGid> * bound_gid,
+    std::size_t * publisher_count,
+    const std::string & reason_prefix,
+    bool (* qos_validator)(const rmw_qos_profile_t &)) {
       const auto endpoints = get_publishers_info_by_topic(topic);
       *publisher_count = endpoints.size();
       if (endpoints.empty()) {
@@ -833,7 +833,8 @@ void LocalizationOutputGateway::PublishDiagnostics()
     Value("expected_mode", contract_.input.expected_mode),
     Value("expected_selector_contract_id", contract_.input.expected_selector_contract_id),
     Value("expected_source_contract_id", contract_.input.expected_source_contract_id),
-    Value("localization_epoch_id",
+    Value(
+      "localization_epoch_id",
       bound_epoch_id_.has_value() ? bound_epoch_id_.value() : "not_bound"),
     Value("input_publisher_count", input_publisher_count_),
     Value("mavros_state_publisher_count", state_publisher_count_),
