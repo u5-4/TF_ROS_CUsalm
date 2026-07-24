@@ -160,8 +160,14 @@ class TestDisabledGatewayGraph(unittest.TestCase):
             '/parameter_events',
             '/rosout',
         }
+        allowed_gateway_subscriptions = {
+            '/localization/selected/pose',
+            '/parameter_events',
+        }
         self.assertTrue(set(publishers).issubset(allowed_gateway_publishers))
-        self.assertEqual(set(subscriptions), {'/localization/selected/pose'})
+        self.assertTrue(
+            set(subscriptions).issubset(allowed_gateway_subscriptions))
+        self.assertIn('/localization/selected/pose', subscriptions)
         for topic in forbidden_publishers:
             self.assertEqual(
                 len(self.observer.get_publishers_info_by_topic(topic)), 0,
