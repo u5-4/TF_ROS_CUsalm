@@ -25,6 +25,7 @@
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -38,6 +39,7 @@ namespace
 
 using diagnostic_msgs::msg::DiagnosticArray;
 using diagnostic_msgs::msg::DiagnosticStatus;
+using localization_adapter_interfaces::msg::LocalizationSourceCandidate;
 using localization_adapter_interfaces::msg::ShadowPoseCandidate;
 using namespace std::chrono_literals;
 
@@ -66,17 +68,6 @@ bool SpinUntil(
   return predicate();
 }
 
-void SpinFor(
-  rclcpp::executors::SingleThreadedExecutor * executor,
-  const std::chrono::steady_clock::duration duration)
-{
-  const auto deadline = std::chrono::steady_clock::now() + duration;
-  while (std::chrono::steady_clock::now() < deadline) {
-    executor->spin_some();
-    std::this_thread::sleep_for(2ms);
-  }
-}
-
 class InputAuthorityLifecycle : public ::testing::Test
 {
 protected:
@@ -97,7 +88,7 @@ protected:
   }
 };
 
-TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
+TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
 {
   auto adapter = std::make_shared<MocapLocalizationAdapter>();
   auto observer = std::make_shared<rclcpp::Node>("input_authority_observer");
@@ -105,14 +96,19 @@ TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
   const std::string diagnostic_status_name =
     std::string(adapter->get_fully_qualified_name()) + ": mocap shadow contract";
   std::optional<DiagnosticStatus> latest_status;
+  std::optional<std::chrono::steady_clock::time_point> latest_status_received_at;
+  std::size_t diagnostic_count = 0U;
   std::size_t candidate_count = 0U;
   auto diagnostics_subscription = observer->create_subscription<DiagnosticArray>(
     "/diagnostics",
     qos,
-    [&latest_status, diagnostic_status_name](const DiagnosticArray::ConstSharedPtr message) {
+    [&latest_status, &latest_status_received_at, &diagnostic_count,
+    diagnostic_status_name](const DiagnosticArray::ConstSharedPtr message) {
       for (const auto & status : message->status) {
         if (status.name == diagnostic_status_name) {
           latest_status = status;
+          latest_status_received_at = std::chrono::steady_clock::now();
+          ++diagnostic_count;
         }
       }
     });
@@ -120,6 +116,14 @@ TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
     "/localization/shadow/mocap/assumed_base_pose",
     qos,
     [&candidate_count](const ShadowPoseCandidate::ConstSharedPtr) {++candidate_count;});
+  std::size_t source_candidate_count = 0U;
+  auto source_candidate_subscription =
+    observer->create_subscription<LocalizationSourceCandidate>(
+    "/localization/candidates/mocap/base_pose",
+    qos,
+    [&source_candidate_count](const LocalizationSourceCandidate::ConstSharedPtr) {
+      ++source_candidate_count;
+    });
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(adapter);
@@ -233,34 +237,57 @@ TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
     publish_pose();
   }
   ASSERT_GT(candidate_count, 0U);
+  ASSERT_GT(source_candidate_count, 0U);
   ASSERT_TRUE(input_is_healthy());
   EXPECT_NE(DiagnosticValue(latest_status.value(), "bound_publisher_gid"), "unbound");
-  SpinFor(&executor, 300ms);
+  EXPECT_EQ(
+    DiagnosticValue(latest_status.value(), "source_candidate_publisher_gid_valid"), "1");
+
+  const std::size_t fresh_diagnostic_count = diagnostic_count;
+  const auto fresh_diagnostic_deadline = std::chrono::steady_clock::now() + 1s;
+  while (diagnostic_count == fresh_diagnostic_count &&
+    std::chrono::steady_clock::now() < fresh_diagnostic_deadline)
+  {
+    publish_pose();
+  }
+  ASSERT_GT(diagnostic_count, fresh_diagnostic_count);
+  const std::size_t diagnostic_count_before_duplicate = diagnostic_count;
+  ASSERT_TRUE(latest_status_received_at.has_value());
+  ASSERT_EQ(DiagnosticValue(latest_status.value(), "publisher_count"), "1");
   const std::size_t candidate_count_before_duplicate = candidate_count;
-  const std::uint64_t published_before_duplicate = std::stoull(
-    DiagnosticValue(latest_status.value(), "published_shadow_candidates"));
+  const std::size_t source_candidate_count_before_duplicate = source_candidate_count;
   const std::uint64_t violations_before_duplicate = std::stoull(
     DiagnosticValue(latest_status.value(), "publisher_authority_violation"));
-  SpinFor(&executor, 300ms);
-  ASSERT_EQ(candidate_count, candidate_count_before_duplicate);
-  ASSERT_EQ(
-    std::stoull(DiagnosticValue(latest_status.value(), "published_shadow_candidates")),
-    published_before_duplicate);
 
   auto duplicate_source = std::make_shared<rclcpp::Node>("unapproved_vrpn_writer");
   auto duplicate_publisher = duplicate_source->create_publisher<geometry_msgs::msg::PoseStamped>(
     "/droneyee207/pose", qos);
   executor.add_node(duplicate_source);
-  ASSERT_TRUE(
-    SpinUntil(
-      &executor,
-      [&adapter]() {
-        return adapter->get_publishers_info_by_topic("/droneyee207/pose").size() == 2U;
-      },
-      5s));
+  const auto duplicate_graph_deadline = std::chrono::steady_clock::now() + 40ms;
+  while (adapter->get_publishers_info_by_topic("/droneyee207/pose").size() != 2U &&
+    std::chrono::steady_clock::now() < duplicate_graph_deadline)
+  {
+    std::this_thread::yield();
+  }
   const auto duplicate_endpoints = adapter->get_publishers_info_by_topic("/droneyee207/pose");
   ASSERT_EQ(duplicate_endpoints.size(), 2U);
   EXPECT_NE(duplicate_endpoints[0].endpoint_gid(), duplicate_endpoints[1].endpoint_gid());
+  const auto diagnostic_age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now() - latest_status_received_at.value()).count();
+  ASSERT_LT(diagnostic_age_ms, 50);
+
+  geometry_msgs::msg::PoseStamped trusted_pose;
+  trusted_pose.header.stamp = source->get_clock()->now();
+  trusted_pose.header.frame_id = "world";
+  trusted_pose.pose.orientation.w = 1.0;
+  pose_publisher->publish(trusted_pose);
+  for (std::size_t index = 0U; index < 5U; ++index) {
+    executor.spin_once(5ms);
+  }
+  EXPECT_EQ(diagnostic_count, diagnostic_count_before_duplicate);
+  EXPECT_EQ(candidate_count, candidate_count_before_duplicate);
+  EXPECT_EQ(source_candidate_count, source_candidate_count_before_duplicate);
+
   ASSERT_TRUE(
     SpinUntil(
       &executor,
@@ -271,24 +298,11 @@ TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
         "POSE_PUBLISHER_NOT_UNIQUE";
       },
       5s));
-  EXPECT_GT(
-    std::stoull(DiagnosticValue(latest_status.value(), "publisher_authority_violation")),
-    violations_before_duplicate);
-
-  for (std::size_t index = 0U; index < 20U; ++index) {
-    geometry_msgs::msg::PoseStamped pose;
-    pose.header.stamp = duplicate_source->get_clock()->now();
-    pose.header.frame_id = "world";
-    pose.pose.orientation.w = 1.0;
-    duplicate_publisher->publish(pose);
-    executor.spin_some();
-    std::this_thread::sleep_for(8ms);
-  }
-  SpinFor(&executor, 300ms);
-  EXPECT_EQ(candidate_count, candidate_count_before_duplicate);
   EXPECT_EQ(
-    std::stoull(DiagnosticValue(latest_status.value(), "published_shadow_candidates")),
-    published_before_duplicate);
+    std::stoull(DiagnosticValue(latest_status.value(), "publisher_authority_violation")),
+    violations_before_duplicate + 1U);
+  EXPECT_EQ(candidate_count, candidate_count_before_duplicate);
+  EXPECT_EQ(source_candidate_count, source_candidate_count_before_duplicate);
   EXPECT_EQ(DiagnosticValue(latest_status.value(), "health_state"), "latched_fault");
 
   executor.remove_node(duplicate_source);
@@ -296,6 +310,8 @@ TEST_F(InputAuthorityLifecycle, DiscoveryWaitsBeforeBindingAndDuplicateLatches)
 
   (void)diagnostics_subscription;
   (void)candidate_subscription;
+  (void)source_candidate_subscription;
+  (void)duplicate_publisher;
 }
 
 }  // namespace

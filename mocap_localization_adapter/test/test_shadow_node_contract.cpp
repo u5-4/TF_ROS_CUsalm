@@ -96,7 +96,7 @@ TEST(ShadowInputQosContract, KeepsReliabilityAndDurabilityStrict)
   EXPECT_FALSE(ShadowInputPublisherQosIsCompatible(qos));
 }
 
-TEST_F(ShadowNodeContract, GraphContainsOnlyCandidatePoseAndDiagnosticsPublishers)
+TEST_F(ShadowNodeContract, GraphContainsOnlyUnprivilegedPoseAndDiagnosticsPublishers)
 {
   auto node = std::make_shared<MocapLocalizationAdapter>();
   const auto publishers = node->get_node_graph_interface()
@@ -107,6 +107,11 @@ TEST_F(ShadowNodeContract, GraphContainsOnlyCandidatePoseAndDiagnosticsPublisher
   EXPECT_EQ(
     publishers.at("/localization/shadow/mocap/assumed_base_pose").front(),
     "localization_adapter_interfaces/msg/ShadowPoseCandidate");
+  EXPECT_EQ(publishers.count("/localization/candidates/mocap/base_pose"), 1U);
+  ASSERT_EQ(publishers.at("/localization/candidates/mocap/base_pose").size(), 1U);
+  EXPECT_EQ(
+    publishers.at("/localization/candidates/mocap/base_pose").front(),
+    "localization_adapter_interfaces/msg/LocalizationSourceCandidate");
   EXPECT_EQ(publishers.count("/diagnostics"), 1U);
   EXPECT_EQ(publishers.count("/localization/odometry"), 0U);
   EXPECT_EQ(publishers.count("/state/odom"), 0U);
@@ -169,6 +174,7 @@ TEST_F(ShadowNodeContract, RejectsRemappingOfContractBoundTopics)
         "/droneyee207/pose:=/untrusted/pose",
         "/localization/shadow/mocap/assumed_base_pose:=/localization/odometry",
         "/localization/shadow/mocap/assumed_base_pose:=/mavros/vision_pose/pose",
+        "/localization/candidates/mocap/base_pose:=/localization/odometry",
         "/diagnostics:=/mavros/odometry/out"
       })
   {

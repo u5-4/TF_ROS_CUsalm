@@ -20,6 +20,7 @@
 #include <thread>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -31,6 +32,7 @@ namespace mocap_localization_adapter
 namespace
 {
 
+using localization_adapter_interfaces::msg::LocalizationSourceCandidate;
 using localization_adapter_interfaces::msg::ShadowPoseCandidate;
 using namespace std::chrono_literals;
 
@@ -71,6 +73,14 @@ TEST_F(OutputAuthority, DuplicateAdapterWritersRemainFailClosed)
     "/localization/shadow/mocap/assumed_base_pose",
     rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile(),
     [&candidate_count](const ShadowPoseCandidate::ConstSharedPtr) {++candidate_count;});
+  std::size_t source_candidate_count = 0U;
+  auto source_candidate_subscription =
+    observer->create_subscription<LocalizationSourceCandidate>(
+    "/localization/candidates/mocap/base_pose",
+    rclcpp::QoS(rclcpp::KeepLast(10)).reliable().durability_volatile(),
+    [&source_candidate_count](const LocalizationSourceCandidate::ConstSharedPtr) {
+      ++source_candidate_count;
+    });
 
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(first_adapter);
@@ -97,7 +107,9 @@ TEST_F(OutputAuthority, DuplicateAdapterWritersRemainFailClosed)
   }
 
   EXPECT_EQ(candidate_count, 0U);
+  EXPECT_EQ(source_candidate_count, 0U);
   (void)candidate_subscription;
+  (void)source_candidate_subscription;
 }
 
 }  // namespace

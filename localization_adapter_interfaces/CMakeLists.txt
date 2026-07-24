@@ -21,13 +21,18 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/LocalizationSourceCandidate.msg"
+  "msg/SelectedPoseCandidate.msg"
   "msg/ShadowPoseCandidate.msg"
   DEPENDENCIES geometry_msgs std_msgs
 )
 
 if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  ament_add_pytest_test(message_schema test/test_message_schema.py)
 endif()
 
 ament_export_dependencies(rosidl_default_runtime)

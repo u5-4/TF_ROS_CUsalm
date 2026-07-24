@@ -35,6 +35,7 @@
 #include <builtin_interfaces/msg/time.hpp>
 #include <diagnostic_msgs/msg/diagnostic_status.hpp>
 #include <diagnostic_msgs/msg/key_value.hpp>
+#include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/message_info.hpp>
 
@@ -61,6 +62,11 @@ constexpr std::int64_t kNanosecondsPerSecond = 1000000000LL;
 constexpr char kPoseMessageType[] = "geometry_msgs/msg/PoseStamped";
 constexpr char kShadowMessageType[] =
   "localization_adapter_interfaces/msg/ShadowPoseCandidate";
+constexpr char kSourceCandidateTopic[] = "/localization/candidates/mocap/base_pose";
+constexpr char kSourceCandidateMessageType[] =
+  "localization_adapter_interfaces/msg/LocalizationSourceCandidate";
+constexpr char kSourceCandidateAuthorization[] = "source_pose_candidate_only";
+constexpr char kSourceId[] = "mocap";
 
 std::optional<std::int64_t> StampToNanoseconds(
   const builtin_interfaces::msg::Time & stamp)
@@ -93,6 +99,12 @@ template<typename Gid>
 bool GidsEqual(const Gid & left, const Gid & right)
 {
   return std::equal(left.begin(), left.end(), right.begin(), right.end());
+}
+
+template<typename Gid>
+bool GidMatchesRmw(const Gid & endpoint_gid, const rmw_gid_t & publisher_gid)
+{
+  return std::equal(endpoint_gid.begin(), endpoint_gid.end(), publisher_gid.data);
 }
 
 template<typename Gid>
@@ -207,6 +219,9 @@ MocapLocalizationAdapter::MocapLocalizationAdapter(const rclcpp::NodeOptions & o
   shadow_pose_publisher_ = create_publisher<
     localization_adapter_interfaces::msg::ShadowPoseCandidate>(
     config_.output_topic, reliable_qos);
+  source_candidate_publisher_ = create_publisher<
+    localization_adapter_interfaces::msg::LocalizationSourceCandidate>(
+    kSourceCandidateTopic, reliable_qos);
   pose_subscription_ = create_subscription<geometry_msgs::msg::PoseStamped>(
     config_.input_topic,
     reliable_qos,
@@ -218,6 +233,7 @@ MocapLocalizationAdapter::MocapLocalizationAdapter(const rclcpp::NodeOptions & o
 
   if (std::string(diagnostics_publisher_->get_topic_name()) != config_.diagnostics_topic ||
     std::string(shadow_pose_publisher_->get_topic_name()) != config_.output_topic ||
+    std::string(source_candidate_publisher_->get_topic_name()) != kSourceCandidateTopic ||
     std::string(pose_subscription_->get_topic_name()) != config_.input_topic)
   {
     throw std::runtime_error("ROS remapping of contract-bound mocap topics is forbidden");
@@ -409,6 +425,9 @@ void MocapLocalizationAdapter::OnPose(
   if (health_gate_.State() != HealthState::kHealthy) {
     return;
   }
+  if (!SourceCandidatePublisherIsAuthoritativeLocked()) {
+    return;
+  }
 
   localization_adapter_interfaces::msg::ShadowPoseCandidate output;
   output.header.stamp = message->header.stamp;
@@ -441,6 +460,16 @@ void MocapLocalizationAdapter::OnPose(
   output.capture_time_validated = false;
   shadow_pose_publisher_->publish(output);
   ++published_;
+
+  localization_adapter_interfaces::msg::LocalizationSourceCandidate source_candidate;
+  source_candidate.header = output.header;
+  source_candidate.semantic_child_frame = output.semantic_child_frame;
+  source_candidate.pose = output.pose;
+  source_candidate.source_id = kSourceId;
+  source_candidate.source_contract_id = config_.contract_id;
+  source_candidate.authorization = kSourceCandidateAuthorization;
+  source_candidate_publisher_->publish(source_candidate);
+  ++source_candidates_published_;
 }
 
 bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
@@ -450,16 +479,6 @@ bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
   PublisherGid message_gid{};
   const auto & raw_gid = message_info.get_rmw_message_info().publisher_gid;
   std::copy_n(raw_gid.data, RMW_GID_STORAGE_SIZE, message_gid.begin());
-  if (bound_publisher_gid_.has_value()) {
-    if (!GidsEqual(message_gid, bound_publisher_gid_.value())) {
-      ++publisher_authority_violation_;
-      health_gate_.MarkLatched("POSE_PUBLISHER_GID_CHANGED");
-      return false;
-    }
-    return publisher_count_ == 1U && publisher_identity_valid_ &&
-           publisher_type_valid_ && publisher_qos_valid_;
-  }
-
   const auto endpoints = get_publishers_info_by_topic(config_.input_topic);
   publisher_count_ = endpoints.size();
   publisher_identity_valid_ = false;
@@ -488,8 +507,36 @@ bool MocapLocalizationAdapter::ValidateMessagePublisherLocked(
   }
   const double startup_age = std::chrono::duration<double>(now - started_at_).count();
   const bool startup_discovery_open =
+    !bound_publisher_gid_.has_value() &&
     health_gate_.State() == HealthState::kStarting &&
     startup_age <= config_.health.startup_timeout_sec;
+
+  if (bound_publisher_gid_.has_value()) {
+    if (publisher_count_ != 1U) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched(
+        publisher_count_ > 1U ?
+        "POSE_PUBLISHER_NOT_UNIQUE" : "POSE_PUBLISHER_GID_NOT_DISCOVERED");
+      return false;
+    }
+    if (matching_gid_count != 1U) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_GID_NOT_DISCOVERED");
+      return false;
+    }
+    if (!GidsEqual(message_gid, bound_publisher_gid_.value())) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_GID_CHANGED");
+      return false;
+    }
+    if (!publisher_identity_valid_ || !publisher_type_valid_ || !publisher_qos_valid_) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_AUTHORITY_INVALID");
+      return false;
+    }
+    return true;
+  }
+
   if (matching_gid_count == 0U) {
     if (startup_discovery_open) {
       health_gate_.MarkStarting("WAITING_FOR_POSE_PUBLISHER_GID");
@@ -558,6 +605,40 @@ void MocapLocalizationAdapter::UpdateOutputPublisherEvidenceLocked()
     FullyQualifiedNodeName(endpoints.front()) == get_fully_qualified_name();
   output_publisher_type_valid_ =
     endpoints.size() == 1U && endpoints.front().topic_type() == kShadowMessageType;
+}
+
+void MocapLocalizationAdapter::UpdateSourceCandidatePublisherEvidenceLocked()
+{
+  const auto endpoints = get_publishers_info_by_topic(kSourceCandidateTopic);
+  source_candidate_publisher_count_ = endpoints.size();
+  source_candidate_publisher_identity_valid_ =
+    endpoints.size() == 1U &&
+    FullyQualifiedNodeName(endpoints.front()) == get_fully_qualified_name();
+  source_candidate_publisher_type_valid_ =
+    endpoints.size() == 1U &&
+    endpoints.front().topic_type() == kSourceCandidateMessageType;
+  source_candidate_publisher_gid_valid_ =
+    endpoints.size() == 1U &&
+    GidMatchesRmw(endpoints.front().endpoint_gid(), source_candidate_publisher_->get_gid());
+}
+
+bool MocapLocalizationAdapter::SourceCandidatePublisherIsAuthoritativeLocked()
+{
+  UpdateSourceCandidatePublisherEvidenceLocked();
+  if (source_candidate_publisher_count_ == 1U &&
+    source_candidate_publisher_identity_valid_ &&
+    source_candidate_publisher_type_valid_ &&
+    source_candidate_publisher_gid_valid_)
+  {
+    return true;
+  }
+
+  ++source_candidate_publisher_authority_violation_;
+  health_gate_.MarkLatched(
+    source_candidate_publisher_count_ > 1U ?
+    "SOURCE_CANDIDATE_PUBLISHER_NOT_UNIQUE" :
+    "SOURCE_CANDIDATE_PUBLISHER_AUTHORITY_INVALID");
+  return false;
 }
 
 void MocapLocalizationAdapter::UpdatePoseRateLocked(const std::int64_t stamp_ns)
@@ -658,6 +739,18 @@ bool MocapLocalizationAdapter::InputIsHealthyLocked(
     *reason = "SHADOW_OUTPUT_PUBLISHER_AUTHORITY_INVALID";
     return false;
   }
+  if (source_candidate_publisher_count_ == 0U) {
+    *reason = "WAITING_FOR_SOURCE_CANDIDATE_PUBLISHER";
+    return false;
+  }
+  if (source_candidate_publisher_count_ != 1U ||
+    !source_candidate_publisher_identity_valid_ ||
+    !source_candidate_publisher_type_valid_ ||
+    !source_candidate_publisher_gid_valid_)
+  {
+    *reason = "SOURCE_CANDIDATE_PUBLISHER_AUTHORITY_INVALID";
+    return false;
+  }
   if (!last_valid_pose_received_at_.has_value()) {
     *reason = "WAITING_FOR_VALID_POSE";
     return false;
@@ -725,9 +818,15 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   std::lock_guard<std::mutex> lock(mutex_);
   UpdatePublisherEvidenceLocked();
   UpdateOutputPublisherEvidenceLocked();
+  UpdateSourceCandidatePublisherEvidenceLocked();
   const bool shadow_output_publisher_authority_invalid =
     output_publisher_count_ == 1U &&
     (!output_publisher_identity_valid_ || !output_publisher_type_valid_);
+  const bool source_candidate_publisher_authority_invalid =
+    source_candidate_publisher_count_ == 1U &&
+    (!source_candidate_publisher_identity_valid_ ||
+    !source_candidate_publisher_type_valid_ ||
+    !source_candidate_publisher_gid_valid_);
   const bool input_publisher_bound = bound_publisher_gid_.has_value();
   const double startup_age = std::chrono::duration<double>(now - started_at_).count();
   const bool startup_discovery_open =
@@ -743,24 +842,32 @@ void MocapLocalizationAdapter::OnDiagnosticTimer()
   const bool input_publisher_qos_mismatch =
     input_authority_enforced && publisher_count_ == 1U && !publisher_qos_valid_;
 
-  if (input_publisher_not_unique) {
-    ++publisher_authority_violation_;
-    health_gate_.MarkLatched("POSE_PUBLISHER_NOT_UNIQUE");
-  } else if (input_publisher_identity_mismatch) {
-    ++publisher_authority_violation_;
-    health_gate_.MarkLatched("POSE_PUBLISHER_IDENTITY_MISMATCH");
-  } else if (input_publisher_type_mismatch) {
-    ++publisher_authority_violation_;
-    health_gate_.MarkLatched("POSE_PUBLISHER_TYPE_MISMATCH");
-  } else if (input_publisher_qos_mismatch) {
-    ++publisher_authority_violation_;
-    health_gate_.MarkLatched("POSE_PUBLISHER_QOS_MISMATCH");
-  } else if (output_publisher_count_ > 1U) {
-    ++output_publisher_authority_violation_;
-    health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_NOT_UNIQUE");
-  } else if (shadow_output_publisher_authority_invalid) {
-    ++output_publisher_authority_violation_;
-    health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_AUTHORITY_INVALID");
+  if (health_gate_.State() != HealthState::kLatchedFault) {
+    if (input_publisher_not_unique) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_NOT_UNIQUE");
+    } else if (input_publisher_identity_mismatch) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_IDENTITY_MISMATCH");
+    } else if (input_publisher_type_mismatch) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_TYPE_MISMATCH");
+    } else if (input_publisher_qos_mismatch) {
+      ++publisher_authority_violation_;
+      health_gate_.MarkLatched("POSE_PUBLISHER_QOS_MISMATCH");
+    } else if (output_publisher_count_ > 1U) {
+      ++output_publisher_authority_violation_;
+      health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_NOT_UNIQUE");
+    } else if (shadow_output_publisher_authority_invalid) {
+      ++output_publisher_authority_violation_;
+      health_gate_.MarkLatched("SHADOW_OUTPUT_PUBLISHER_AUTHORITY_INVALID");
+    } else if (source_candidate_publisher_count_ > 1U) {
+      ++source_candidate_publisher_authority_violation_;
+      health_gate_.MarkLatched("SOURCE_CANDIDATE_PUBLISHER_NOT_UNIQUE");
+    } else if (source_candidate_publisher_authority_invalid) {
+      ++source_candidate_publisher_authority_violation_;
+      health_gate_.MarkLatched("SOURCE_CANDIDATE_PUBLISHER_AUTHORITY_INVALID");
+    }
   }
 
   if (health_gate_.State() != HealthState::kLatchedFault) {
@@ -831,6 +938,19 @@ void MocapLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now)
     Value("output_publisher_count", output_publisher_count_),
     Value("output_publisher_identity_valid", output_publisher_identity_valid_),
     Value("output_publisher_type_valid", output_publisher_type_valid_),
+    Value("source_candidate_topic", kSourceCandidateTopic),
+    Value("source_candidate_type", kSourceCandidateMessageType),
+    Value("source_candidate_authorization", kSourceCandidateAuthorization),
+    Value("source_candidate_publisher_count", source_candidate_publisher_count_),
+    Value(
+      "source_candidate_publisher_identity_valid",
+      source_candidate_publisher_identity_valid_),
+    Value(
+      "source_candidate_publisher_type_valid",
+      source_candidate_publisher_type_valid_),
+    Value(
+      "source_candidate_publisher_gid_valid",
+      source_candidate_publisher_gid_valid_),
     Value(
       "bound_publisher_gid",
       bound_publisher_gid_.has_value() ?
@@ -869,6 +989,7 @@ void MocapLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now)
     Value("received", received_),
     Value("accepted", accepted_),
     Value("published_shadow_candidates", published_),
+    Value("published_source_candidates", source_candidates_published_),
     Value("rejected", rejected_),
     Value("zero_or_invalid_stamp", zero_or_invalid_stamp_),
     Value("duplicate", duplicate_),
@@ -885,6 +1006,9 @@ void MocapLocalizationAdapter::PublishDiagnosticsLocked(const SteadyTime & now)
     Value(
       "output_publisher_authority_violation",
       output_publisher_authority_violation_),
+    Value(
+      "source_candidate_publisher_authority_violation",
+      source_candidate_publisher_authority_violation_),
     Value("recovery_progress", health_gate_.RecoveryProgress()),
     Value("recovery_required", health_gate_.RecoveryRequired()),
     Value(

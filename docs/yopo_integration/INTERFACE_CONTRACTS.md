@@ -82,6 +82,32 @@ Pose reset 或模式改变都必须结束当前 epoch。
 
 两个模式必须使用独立 launch。mode 参数启动后不可变，且不提供切换 service。
 
+### 5.3 `localization_source_selector` seam
+
+`YP-220` 采用方案 A。selector 只为启动时选定的一个来源创建 pose subscription，
+不订阅另一个来源，也不在运行中创建或替换 subscription。选定来源必须先由其
+source adapter 形成 `T[source_world,base_link]`，selector 再按第 4 节公式计算一次
+yaw-only `T[map,source_world]` 并在整个 localization epoch 内锁定。
+
+selector 的唯一 pose 输出是：
+
+```text
+/localization/selected/pose
+  localization_adapter_interfaces/msg/SelectedPoseCandidate
+  T[map,base_link]
+```
+
+selector 输入精确使用 `LocalizationSourceCandidate`，字段为 `Header`、
+`semantic_child_frame`、`Pose`、`source_id`、`source_contract_id` 和 `authorization`。
+`SelectedPoseCandidate` 不含 twist 或 covariance，继承来源采样时间，并精确携带
+`selector_contract_id`、`localization_epoch_id`、`mode`、`source_contract_id` 和
+`authorization`。它只是 YP-230 的类型受限 pose candidate，不是 odometry、TF 或
+MAVROS authority。详细合同见
+[`YP_220_SOURCE_SELECTOR_CONTRACT.md`](YP_220_SOURCE_SELECTOR_CONTRACT.md)。
+
+mode、source contract、publisher GID、source reset 或锁定变换发生变化时必须停止
+selected output 并结束 epoch；禁止自动切换、自动重新对齐或用未选来源接管。
+
 ## 6. Topic 合同
 
 下表区分当前观测输入与目标接口。目标接口只有在依赖门禁通过后才能发布。
@@ -93,7 +119,10 @@ Python 环境或容器动态库绕过消息合同。
 | `/visual_slam/tracking/odometry` | `nav_msgs/msg/Odometry` | cuVSLAM | 当前观测为 `odom -> camera_link` |
 | `/droneyee207/pose` | `geometry_msgs/msg/PoseStamped` | VRPN | `world -> mocap_rigid_body` |
 | `/localization/shadow/mocap/assumed_base_pose` | `ShadowPoseCandidate` | mocap adapter | `mocap_world -> base_link` 影子候选 |
-| `/localization/odometry` | `nav_msgs/msg/Odometry` | selected localization adapter | 标准 `odom -> base_link`；Twist 若存在则表达于 `base_link` |
+| `/localization/candidates/cuvslam/base_pose` | `LocalizationSourceCandidate` | cuVSLAM adapter | `odom -> base_link`；已应用 50 mm 外参；仅 `source_pose_candidate_only` |
+| `/localization/candidates/mocap/base_pose` | `LocalizationSourceCandidate` | mocap adapter | `mocap_world -> base_link`；仅 `source_pose_candidate_only` |
+| `/localization/selected/pose` | `SelectedPoseCandidate` | `localization_source_selector` | 当前 epoch 的 `map -> base_link`；无 twist/covariance；只供 gateway 使用 |
+| `/localization/odometry` | `nav_msgs/msg/Odometry` | localization output gateway | 后续规范状态输出；selector 无发布权 |
 | `/mavros/vision_pose/pose_cov` | `geometry_msgs/msg/PoseWithCovarianceStamped` | localization output gateway | 选定的 pose-only PX4 输入候选；当前仍禁止发布 |
 | `/mavros/local_position/odom` | `nav_msgs/msg/Odometry` | MAVROS/PX4 | PX4 EKF 融合状态；实际 frame 必须启动时验证 |
 | `/state/odom` | `nav_msgs/msg/Odometry` | `yopo_state_bridge` | YOPO legacy：Pose 在 `map`，线速度表达于 `map` |
@@ -124,9 +153,10 @@ PX4 接收 `VISION_POSITION_ESTIMATE` 后只得到 pose，velocity 保持 `NaN/U
 `EKF2_EV_CTRL` 的 velocity 位必须保持关闭。由于 `YP-210` 已把相机 Pose 转换到
 `base_link`，PX4 的 `EKF2_EV_POS_X/Y/Z` 目标值为零，禁止再次补偿 50 mm。
 
-全 `NaN` covariance 经 MAVROS 到 PX4 的透传、PX4 参数噪声回退和实际 endpoint
-仍须台架验证；完成前该 topic 必须保持 publisher count 为零，也不构成 Gate G3
-或飞行授权。
+实际 endpoint、publisher authority 和 PX4 参数只读值已由 `YP-200` 验证。全
+`NaN` covariance 经当前 MAVROS binary 到 PX4 的透传，以及 PX4 实际采用参数噪声
+回退，仍须 Gate G3 台架验证；完成前该 topic 必须保持 publisher count 为零，也不
+构成 Gate G3 或飞行授权。
 
 ### 6.2 `/state/odom` 的非标准语义
 
@@ -150,6 +180,7 @@ PX4 接收 `VISION_POSITION_ESTIMATE` 后只得到 pose，velocity 保持 `NaN/U
 ## 8. 速度职责
 
 - 动捕 adapter 不计算速度；
+- `localization_source_selector` 不消费、计算或发布速度；
 - localization output gateway 不创建速度估计；
 - `yopo_state_bridge` 只转换 PX4 EKF 已估计速度；
 - YOPO 不估计定位速度；

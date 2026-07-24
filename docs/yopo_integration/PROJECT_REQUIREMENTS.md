@@ -56,6 +56,15 @@ Jetson 上所有新增运行代码必须使用 ROS 2 Humble。禁止为本阶段
 - `mocap_primary`：动捕是 PX4 外部定位源，cuVSLAM 继续运行但只做影子对比。
 
 模式必须由独立 launch 明确选择。启动后参数只读，不提供运行时切换 service。
+selector 只允许订阅当前 mode 的定位 pose，禁止同时订阅两个来源后在 callback 中
+选择，也禁止因当前来源 stale 或故障自动创建另一来源 subscription。
+
+selector 的输入 interface 固定为
+`localization_adapter_interfaces/msg/LocalizationSourceCandidate`，输出 interface
+固定为 `localization_adapter_interfaces/msg/SelectedPoseCandidate`。输出表达当前
+epoch 的 `map -> base_link`，保留来源采样时间且不包含 twist/covariance；来源由
+字符串 `mode` 和 `source_contract_id` 固定，不使用 source enum。完整双模式系统
+launch 由 `YP-250` 交付，不能用单独 selector 节点启动代替。
 
 ### REQ-F-003：局部地图
 
@@ -71,8 +80,12 @@ Jetson 上所有新增运行代码必须使用 ROS 2 Humble。禁止为本阶段
 
 ### REQ-F-004：定位职责
 
-定位适配和 gateway 只负责读取、校验、坐标变换、来源互斥和发布门禁。
-它们不得通过 Pose 差分建立新的飞行速度估计器。
+定位 adapter 负责来源特有的读取、校验和固定安装变换；selector 负责启动时来源
+互斥、一次 yaw-only `map` 对齐和 pose-only selected seam；gateway 负责 canonical
+与 PX4 输出门禁。三者不得通过 Pose 差分建立新的飞行速度估计器。
+
+selector 不得发布 `/localization/odometry`、`/state/odom`、TF、MAVROS 或控制 topic。
+选择成功不等于 gateway、Gate G3、OFFBOARD、解锁或飞行授权。
 
 ### REQ-F-005：最终状态来源
 
@@ -138,7 +151,8 @@ C++17。YOPO 神经网络和轨迹代码保留现有 Python/PyTorch 实现。
 ### REQ-NF-004：诊断
 
 所有 gateway 和 selector 必须持续发布结构化 diagnostics，包括 mode、authority、
-输入新鲜度、frame、拒绝计数、输出授权和故障原因。
+输入新鲜度、frame、拒绝计数、输出授权和故障原因。selector 还必须报告 source 与
+selector contract ID、publisher GID、一次对齐状态和 localization epoch ID。
 
 ### REQ-NF-005：证据
 

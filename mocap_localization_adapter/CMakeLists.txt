@@ -112,6 +112,24 @@ if(BUILD_TESTING)
   endif()
 
   ament_add_gtest(
+    test_source_candidate_authority
+    test/test_source_candidate_authority.cpp
+  )
+  if(TARGET test_source_candidate_authority)
+    target_link_libraries(test_source_candidate_authority ${PROJECT_NAME}_core)
+    ament_target_dependencies(test_source_candidate_authority
+      diagnostic_msgs
+      geometry_msgs
+      localization_adapter_interfaces
+      rclcpp
+    )
+    set_tests_properties(test_source_candidate_authority PROPERTIES
+      ENVIRONMENT "ROS_DOMAIN_ID=225;ROS_LOCALHOST_ONLY=1"
+      TIMEOUT 20
+    )
+  endif()
+
+  ament_add_gtest(
     test_input_authority_lifecycle
     test/test_input_authority_lifecycle.cpp
   )

@@ -27,6 +27,20 @@
 - 两个 mode 的 launch 测试证明无交叉 authority；
 - 测试结果绑定 commit hash。
 
+`YP-220` selector module 还必须证明：
+
+- `LocalizationSourceCandidate` 与 `SelectedPoseCandidate` schema 逐字段匹配 YP-220
+  合同，且两者都没有 twist/covariance；
+- `cuvslam_primary` 和 `mocap_primary` 各自只创建选定来源的 pose subscription；
+- 初始 position/yaw 只对齐一次，初始 roll/pitch 不会倾斜 `map` z 轴；
+- mode、publisher GID、source reset 或时间回退不能触发重新对齐或切换来源；
+- graph 中不存在来自 selector 的 odometry、TF、MAVROS、YOPO 或控制 publisher；
+- diagnostics 在 starting、healthy、stale 和 latched fault 状态持续可用。
+
+这些条件可以使用 synthetic `LocalizationSourceCandidate` 完成 module 验收。完整
+`cuvslam_primary` 与 `mocap_primary` bringup、非主源 shadow 并行和跨 module authority
+属于 `YP-250`，不属于 `YP-220` 的通过前置条件。
+
 ## 4. Gate G2：D435 深度与 cuVSLAM 联合运行
 
 通过条件：
@@ -45,7 +59,10 @@
 
 - `cuvslam_primary` 和 `mocap_primary` 分别启动成功；
 - mode 启动后不可改变；
-- 非主定位源只能发布 shadow；
+- selector 只发布一个 `SelectedPoseCandidate` pose seam，且自身没有
+  `/localization/odometry`、TF 或 MAVROS publisher；
+- 非主定位源可以继续发布 source-private candidate 或 shadow evidence，但不得获得
+  selected、gateway、PX4 external-vision 或控制 authority；
 - PX4 外部视觉输入最多一个 publisher；
 - MAVROS/PX4 frame 转换和可用字段经源码与消息实测固定；
 - 动捕路径不伪造速度；
@@ -122,4 +139,3 @@
 - PX4 参数、MAVROS 版本和硬件配置已归档；
 - `TASKFLOW.md` 没有未解释的 `FAILED` 或与飞行相关的 `BLOCKED`；
 - 文档明确保留首版排除项，不把阶段结果外推到更高速度或其他场地。
-

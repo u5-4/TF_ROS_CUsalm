@@ -3,8 +3,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>localization_adapter_interfaces</name>
-  <version>0.1.0</version>
-  <description>Explicitly non-production interfaces for localization validation.</description>
+  <version>0.2.0</version>
+  <description>Type-restricted localization candidate interfaces.</description>
   <maintainer email="u5-4@users.noreply.github.com">u5-4</maintainer>
   <license>Apache-2.0</license>
 
@@ -16,6 +16,7 @@
 
   <exec_depend>rosidl_default_runtime</exec_depend>
 
+  <test_depend>ament_cmake_pytest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

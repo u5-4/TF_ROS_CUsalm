@@ -29,6 +29,7 @@
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -63,6 +64,8 @@ private:
     const SteadyTime & now);
   void UpdatePublisherEvidenceLocked();
   void UpdateOutputPublisherEvidenceLocked();
+  void UpdateSourceCandidatePublisherEvidenceLocked();
+  bool SourceCandidatePublisherIsAuthoritativeLocked();
   void UpdatePoseRateLocked(std::int64_t stamp_ns);
   bool ClockDomainMatches(std::int64_t stamp_ns, double * residual_sec);
   bool InputIsHealthyLocked(const SteadyTime & now, std::string * reason) const;
@@ -89,9 +92,13 @@ private:
   bool publisher_qos_valid_{false};
   bool output_publisher_identity_valid_{false};
   bool output_publisher_type_valid_{false};
+  bool source_candidate_publisher_identity_valid_{false};
+  bool source_candidate_publisher_type_valid_{false};
+  bool source_candidate_publisher_gid_valid_{false};
   bool last_pose_valid_{false};
   std::size_t publisher_count_{0U};
   std::size_t output_publisher_count_{0U};
+  std::size_t source_candidate_publisher_count_{0U};
   std::deque<std::int64_t> recent_pose_stamps_ns_;
   std::optional<double> observed_pose_rate_hz_;
   std::optional<double> minimum_recent_stamp_gap_sec_;
@@ -111,6 +118,7 @@ private:
   std::uint64_t received_{0U};
   std::uint64_t accepted_{0U};
   std::uint64_t published_{0U};
+  std::uint64_t source_candidates_published_{0U};
   std::uint64_t rejected_{0U};
   std::uint64_t zero_or_invalid_stamp_{0U};
   std::uint64_t duplicate_{0U};
@@ -125,12 +133,16 @@ private:
   std::uint64_t pose_reset_candidate_{0U};
   std::uint64_t publisher_authority_violation_{0U};
   std::uint64_t output_publisher_authority_violation_{0U};
+  std::uint64_t source_candidate_publisher_authority_violation_{0U};
 
   mutable std::mutex mutex_;
   rclcpp::Clock system_clock_{RCL_SYSTEM_TIME};
   rclcpp::Publisher<
     localization_adapter_interfaces::msg::ShadowPoseCandidate>::SharedPtr
     shadow_pose_publisher_;
+  rclcpp::Publisher<
+    localization_adapter_interfaces::msg::LocalizationSourceCandidate>::SharedPtr
+    source_candidate_publisher_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr
     diagnostics_publisher_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_subscription_;

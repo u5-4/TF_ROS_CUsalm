@@ -25,6 +25,7 @@
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
 #include <localization_adapter_interfaces/msg/shadow_pose_candidate.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -38,6 +39,7 @@ namespace
 
 using diagnostic_msgs::msg::DiagnosticArray;
 using diagnostic_msgs::msg::DiagnosticStatus;
+using localization_adapter_interfaces::msg::LocalizationSourceCandidate;
 using localization_adapter_interfaces::msg::ShadowPoseCandidate;
 using namespace std::chrono_literals;
 
@@ -116,6 +118,14 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
     "/localization/shadow/mocap/assumed_base_pose",
     qos,
     [&candidate](const ShadowPoseCandidate::ConstSharedPtr message) {candidate = *message;});
+  std::optional<LocalizationSourceCandidate> source_candidate;
+  auto source_candidate_subscription =
+    observer->create_subscription<LocalizationSourceCandidate>(
+    "/localization/candidates/mocap/base_pose",
+    qos,
+    [&source_candidate](const LocalizationSourceCandidate::ConstSharedPtr message) {
+      source_candidate = *message;
+    });
   const std::string diagnostic_status_name =
     std::string(adapter->get_fully_qualified_name()) + ": mocap shadow contract";
   std::optional<DiagnosticStatus> latest_diagnostic_status;
@@ -141,7 +151,9 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
       return
         adapter->get_publishers_info_by_topic("/droneyee207/pose").size() == 1U &&
         adapter->get_publishers_info_by_topic(
-        "/localization/shadow/mocap/assumed_base_pose").size() == 1U;
+        "/localization/shadow/mocap/assumed_base_pose").size() == 1U &&
+        adapter->get_publishers_info_by_topic(
+        "/localization/candidates/mocap/base_pose").size() == 1U;
     };
   const auto graph_deadline = std::chrono::steady_clock::now() + 5s;
   while (!graph_is_ready() && std::chrono::steady_clock::now() < graph_deadline) {
@@ -161,7 +173,11 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
              DiagnosticValue(status, "publisher_qos_valid") == "1" &&
              DiagnosticValue(status, "output_publisher_count") == "1" &&
              DiagnosticValue(status, "output_publisher_identity_valid") == "1" &&
-             DiagnosticValue(status, "output_publisher_type_valid") == "1";
+             DiagnosticValue(status, "output_publisher_type_valid") == "1" &&
+             DiagnosticValue(status, "source_candidate_publisher_count") == "1" &&
+             DiagnosticValue(status, "source_candidate_publisher_identity_valid") == "1" &&
+             DiagnosticValue(status, "source_candidate_publisher_type_valid") == "1" &&
+             DiagnosticValue(status, "source_candidate_publisher_gid_valid") == "1";
     };
   const auto evidence_deadline = std::chrono::steady_clock::now() + 5s;
   while (!diagnostic_authority_is_ready() &&
@@ -217,12 +233,17 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
     publish_pose();
   }
   EXPECT_FALSE(candidate.has_value());
+  EXPECT_FALSE(source_candidate.has_value());
 
-  while (pose_index < 500U && !candidate.has_value()) {
+  while (pose_index < 500U &&
+    (!candidate.has_value() || !source_candidate.has_value()))
+  {
     publish_pose();
   }
   const auto drain_deadline = std::chrono::steady_clock::now() + 150ms;
-  while (!candidate.has_value() && std::chrono::steady_clock::now() < drain_deadline) {
+  while ((!candidate.has_value() || !source_candidate.has_value()) &&
+    std::chrono::steady_clock::now() < drain_deadline)
+  {
     executor.spin_some();
     std::this_thread::sleep_for(1ms);
   }
@@ -257,7 +278,25 @@ TEST_F(LiveShadowPipeline, PublishesOnlyTypedCandidateAfterHealthWarmup)
   EXPECT_FALSE(candidate->source_configuration_validated);
   EXPECT_FALSE(candidate->capture_time_validated);
 
+  ASSERT_TRUE(source_candidate.has_value()) << DiagnosticSummary(latest_diagnostic_status);
+  EXPECT_EQ(source_candidate->header.stamp, candidate->header.stamp);
+  EXPECT_EQ(source_candidate->header.frame_id, "mocap_world");
+  EXPECT_EQ(source_candidate->semantic_child_frame, "base_link");
+  EXPECT_DOUBLE_EQ(source_candidate->pose.position.x, 1.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.position.y, 2.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.position.z, 3.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.orientation.x, 0.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.orientation.y, 0.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.orientation.z, 0.0);
+  EXPECT_DOUBLE_EQ(source_candidate->pose.orientation.w, 1.0);
+  EXPECT_EQ(source_candidate->source_id, "mocap");
+  EXPECT_EQ(
+    source_candidate->source_contract_id,
+    "droneyee207_mocap_shadow_20260722_v2");
+  EXPECT_EQ(source_candidate->authorization, "source_pose_candidate_only");
+
   (void)candidate_subscription;
+  (void)source_candidate_subscription;
   (void)diagnostics_subscription;
 }
 

@@ -1,27 +1,27 @@
 # YP-200 MAVROS/PX4 外部视觉接口审计
 
-日期：2026-07-23
+日期：2026-07-23；只读运行审计完成于 2026-07-24
 
 ```text
 source_audit=COMPLETE
+status_source=TASKFLOW.md
 selected_candidate=/mavros/vision_pose/pose_cov
 selected_message=geometry_msgs/msg/PoseWithCovarianceStamped
 velocity_measurement=ABSENT
 covariance_measurement=UNKNOWN_ALL_NAN
-runtime_endpoint_evidence=OBSERVED_PENDING_CLEAN_RERUN
+runtime_endpoint_evidence=COMPLETE
 runtime_nan_passthrough_evidence=DEFERRED_TO_GATE_G3
-px4_parameter_evidence=PENDING
+px4_parameter_evidence=COMPLETE_READ_ONLY
 external_vision_output_authorization=DENIED
 offboard_authorization=DENIED
 arming_authorization=DENIED
 flight_authorization=DENIED
 ```
 
-本报告完成源码层接口选择，不构成 Gate G3、OFFBOARD、解锁或飞行授权。运行时
-endpoint 已在首次不完整审计中观察通过，但仍需修订版 clean rerun 固化；实际 PX4
-参数尚未取证，因此 `YP-200` 仍保持 `IN_PROGRESS`。NaN covariance 透传必须由
-实现后的 gateway 在 Gate G3 拆桨台架验证，不作为尚未实现 gateway 时的循环前置
-条件。
+本报告已经完成源码层接口选择、运行时 endpoint 和 PX4 参数只读取证；`YP-200` 的
+权威任务状态只在 `TASKFLOW.md` 维护。本报告不构成 Gate G3、OFFBOARD、解锁或飞行
+授权。NaN covariance 透传必须由实现后的 gateway 在 Gate G3 拆桨台架验证，不作为
+尚未实现 gateway 时的循环前置条件。
 
 ## 1. 固定版本与一手来源
 
@@ -75,7 +75,8 @@ private topic `~/...` 展开如下。自定义 namespace/remap 会改变完整 t
 本项目的 external-vision gateway 候选固定为：
 
 ```text
-/localization/odometry 的已授权 Pose
+/localization/selected/pose 的 selected_pose_candidate_only Pose
+  -> localization_output_gateway
   -> geometry_msgs/msg/PoseWithCovarianceStamped
   -> /mavros/vision_pose/pose_cov
   -> MAVLink VISION_POSITION_ESTIMATE
@@ -303,6 +304,47 @@ flight stack 故障：脚本使用了错误的 `tf.listen` 名称，而运行时
 接口定义明确要求 ROS 2 parameter API。修订版改为从 `/mavros/param` 只读参数。
 该次输出只保留为修复前证据，不能用于关闭 `YP-200`。
 
+#### 2026-07-24 修订版 clean rerun
+
+| 字段 | 结果 |
+| --- | --- |
+| 文件 | `/home/nvidia/mavros_px4_external_vision_audit_20260724_v2.txt` |
+| 输出 SHA-256 | `6778c559bb7203bc29ae18f653da287ecd55371fd25681a72fb96350f3f2c66d` |
+| MAVROS/PX4 | MAVROS `2.14.0`；PX4 revision `99c40407ff000000` |
+| PX4 状态 | connected、disarmed、`STABILIZED` |
+| TF 输入 | `/mavros/vision_pose` 的 `tf/listen=false` |
+| endpoint | node、namespace、type、方向和 publisher authority 全部通过 |
+| timesync | 样本 round-trip `1.470744 ms` |
+| 写操作 | parameter/mode/arming/OFFBOARD 写操作均为 0 |
+| 结果 | `errors=0`、`warnings=0`、`READ_ONLY_AUDIT_COMPLETE`、exit `0` |
+
+同一次只读审计取得的 PX4 参数如下。分类 `OBSERVED_ONLY` 表示实机现状已经固定，
+不是参数写入建议或运行授权。
+
+| 参数 | 实际值 | 审计结论 |
+| --- | ---: | --- |
+| `EKF2_EV_CTRL` | `11` | `0b1011`；position、height、yaw bit 已置位，velocity bit `0b0100` 未置位 |
+| `EKF2_EV_DELAY` | `0.0` | 当前固定延迟；Gate G3 仍需结合 stamp/timesync 验证 |
+| `EKF2_EV_NOISE_MD` | `0` | `PREEXISTING_OBSERVED_ONLY`；Gate G3 候选 `1` 仍待独立评审 |
+| `EKF2_EV_QMIN` | `0` | `OBSERVED_ONLY`；Gate G3 验证 VPE quality 行为 |
+| `EKF2_EV_POS_X/Y/Z` | `0.0/0.0/0.0` | 与已去除 50 mm 相机杆臂的 `base_link` pose 一致 |
+| `EKF2_EVP_NOISE` | `0.10000000149` | `OBSERVED_ONLY` |
+| `EKF2_EVP_GATE` | `5.0` | `OBSERVED_ONLY` |
+| `EKF2_EVV_NOISE` | `0.10000000149` | 已记录但 velocity fusion 未启用 |
+| `EKF2_EVV_GATE` | `3.0` | 已记录但 velocity fusion 未启用 |
+| `EKF2_EVA_NOISE` | `0.10000000149` | `OBSERVED_ONLY` |
+| `EKF2_HGT_REF` | `3` | Vision height reference；首次注入 reset/fallback 留给 Gate G3 |
+| `EKF2_GPS_CTRL` | `7` | `OBSERVED_ONLY`；与其他 aiding source 的竞争留给 Gate G3 |
+| `EKF2_BARO_CTRL` | `1` | `OBSERVED_ONLY` |
+| `EKF2_RNG_CTRL` | `2` | `OBSERVED_ONLY` |
+| `EKF2_MAG_TYPE` | `0` | `OBSERVED_ONLY` |
+| `EKF2_NOAID_TOUT` | `5000000` | `OBSERVED_ONLY` |
+
+`EKF2_EV_CTRL=11` 只证明当前 velocity bit 已关闭，不批准 external-vision 发布。
+`EKF2_EV_NOISE_MD=0` 下，源码仍会在消息 variance 非 finite 时回退到参数噪声；
+全 NaN 是否经过当前 MAVROS binary 保持 non-finite，必须由 Gate G3 实测，不能用
+本次只读证据代替。所有 parameter approval 继续为 `NONE`。
+
 ### 8.2 拆桨、人工批准后的注入证据
 
 后续单独批准的 Gate G3 试验必须保持 disarmed、非 OFFBOARD、拆桨，并证明：
@@ -334,11 +376,13 @@ flight stack 故障：脚本使用了错误的 `tf.listen` 名称，而运行时
 
 ## 10. 审计结论
 
-源码已证明 MAVROS 2.14/PX4 v1.15.4 支持真正的 pose-only 外部视觉输入。首版选择
-`/mavros/vision_pose/pose_cov`，用全 NaN covariance 表达“未知”，并在 PX4 侧使用
-经审计的参数噪声；速度字段天然缺失，`EKF2_EV_CTRL` velocity bit 必须关闭。
+源码和只读运行证据已经证明 MAVROS 2.14/PX4 v1.15.4 支持真正的 pose-only 外部
+视觉输入。首版选择 `/mavros/vision_pose/pose_cov`，用全 NaN covariance 表达
+“未知”；PX4 源码在 variance 非 finite 时定义参数噪声回退。实机参数只读值已经
+归档，但没有获得配置批准；速度字段天然缺失，当前 `EKF2_EV_CTRL=11` 的 velocity
+bit 已关闭。
 
 裸 `/mavros/vision_pose/pose` 因 MAVROS 自动生成全零 covariance 被否决；
-`/mavros/odometry/out` 因默认零 twist 会伪造速度且合同面更大而被否决。完成实际
-endpoint 和 PX4 参数证据后可以关闭接口审计任务；完成 NaN 透传 Gate G3 前，
-external-vision output authority 继续保持 `DENIED`。
+`/mavros/odometry/out` 因默认零 twist 会伪造速度且合同面更大而被否决。接口审计
+任务已经关闭；完成 NaN 透传和其他 Gate G3 台架证据前，external-vision output
+authority 继续保持 `DENIED`。
