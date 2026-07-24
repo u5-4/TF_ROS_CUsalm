@@ -35,6 +35,7 @@
 #include <diagnostic_msgs/msg/key_value.hpp>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <rclcpp/message_info.hpp>
+#include <rclcpp/node_interfaces/node_topics_interface.hpp>
 
 namespace localization_source_selector
 {
@@ -229,10 +230,10 @@ LocalizationSourceSelector::LocalizationSourceSelector(const rclcpp::NodeOptions
   }
 
   const auto require_unremapped_topic = [this](const std::string & topic) {
-      if (resolve_topic_or_service_name(topic, false) != topic) {
-        throw std::runtime_error("ROS remapping of selector contract topics is forbidden");
-      }
-    };
+    if (get_node_topics_interface()->resolve_topic_name(topic, false) != topic) {
+      throw std::runtime_error("ROS remapping of selector contract topics is forbidden");
+    }
+  };
   require_unremapped_topic(contract_.input.topic);
   require_unremapped_topic(contract_.output.topic);
   require_unremapped_topic("/diagnostics");
