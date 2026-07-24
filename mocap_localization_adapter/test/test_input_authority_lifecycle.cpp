@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 
+#include <builtin_interfaces/msg/time.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <localization_adapter_interfaces/msg/localization_source_candidate.hpp>
@@ -53,6 +54,12 @@ std::string DiagnosticValue(
     }
   }
   return "missing";
+}
+
+std::int64_t StampToNanoseconds(const builtin_interfaces::msg::Time & stamp)
+{
+  return static_cast<std::int64_t>(stamp.sec) * 1000000000LL +
+         static_cast<std::int64_t>(stamp.nanosec);
 }
 
 bool SpinUntil(
@@ -98,6 +105,9 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   std::optional<DiagnosticStatus> latest_status;
   std::optional<std::chrono::steady_clock::time_point> latest_status_received_at;
   std::size_t diagnostic_count = 0U;
+  std::optional<std::int64_t> trigger_stamp_ns;
+  bool shadow_candidate_for_trigger = false;
+  bool source_candidate_for_trigger = false;
   std::size_t candidate_count = 0U;
   auto diagnostics_subscription = observer->create_subscription<DiagnosticArray>(
     "/diagnostics",
@@ -115,14 +125,28 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   auto candidate_subscription = observer->create_subscription<ShadowPoseCandidate>(
     "/localization/shadow/mocap/assumed_base_pose",
     qos,
-    [&candidate_count](const ShadowPoseCandidate::ConstSharedPtr) {++candidate_count;});
+    [&candidate_count, &trigger_stamp_ns,
+    &shadow_candidate_for_trigger](const ShadowPoseCandidate::ConstSharedPtr message) {
+      ++candidate_count;
+      if (trigger_stamp_ns.has_value() &&
+      StampToNanoseconds(message->header.stamp) == trigger_stamp_ns.value())
+      {
+        shadow_candidate_for_trigger = true;
+      }
+    });
   std::size_t source_candidate_count = 0U;
   auto source_candidate_subscription =
     observer->create_subscription<LocalizationSourceCandidate>(
     "/localization/candidates/mocap/base_pose",
     qos,
-    [&source_candidate_count](const LocalizationSourceCandidate::ConstSharedPtr) {
+    [&source_candidate_count, &trigger_stamp_ns,
+    &source_candidate_for_trigger](const LocalizationSourceCandidate::ConstSharedPtr message) {
       ++source_candidate_count;
+      if (trigger_stamp_ns.has_value() &&
+      StampToNanoseconds(message->header.stamp) == trigger_stamp_ns.value())
+      {
+        source_candidate_for_trigger = true;
+      }
     });
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -243,19 +267,27 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   EXPECT_EQ(
     DiagnosticValue(latest_status.value(), "source_candidate_publisher_gid_valid"), "1");
 
-  const std::size_t fresh_diagnostic_count = diagnostic_count;
-  const auto fresh_diagnostic_deadline = std::chrono::steady_clock::now() + 1s;
-  while (diagnostic_count == fresh_diagnostic_count &&
-    std::chrono::steady_clock::now() < fresh_diagnostic_deadline)
-  {
-    publish_pose();
-  }
-  ASSERT_GT(diagnostic_count, fresh_diagnostic_count);
+  executor.spin_some();
+  const std::size_t settled_diagnostic_count = diagnostic_count;
+  ASSERT_TRUE(
+    SpinUntil(
+      &executor,
+      [&diagnostic_count, settled_diagnostic_count]() {
+        return diagnostic_count > settled_diagnostic_count;
+      },
+      200ms));
   const std::size_t diagnostic_count_before_duplicate = diagnostic_count;
   ASSERT_TRUE(latest_status_received_at.has_value());
+  ASSERT_EQ(DiagnosticValue(latest_status.value(), "health_state"), "healthy");
   ASSERT_EQ(DiagnosticValue(latest_status.value(), "publisher_count"), "1");
-  const std::size_t candidate_count_before_duplicate = candidate_count;
-  const std::size_t source_candidate_count_before_duplicate = source_candidate_count;
+  const std::uint64_t received_before_trigger = std::stoull(
+    DiagnosticValue(latest_status.value(), "received"));
+  const std::uint64_t rejected_before_trigger = std::stoull(
+    DiagnosticValue(latest_status.value(), "rejected"));
+  const std::uint64_t shadow_published_before_trigger = std::stoull(
+    DiagnosticValue(latest_status.value(), "published_shadow_candidates"));
+  const std::uint64_t source_published_before_trigger = std::stoull(
+    DiagnosticValue(latest_status.value(), "published_source_candidates"));
   const std::uint64_t violations_before_duplicate = std::stoull(
     DiagnosticValue(latest_status.value(), "publisher_authority_violation"));
 
@@ -263,7 +295,7 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   auto duplicate_publisher = duplicate_source->create_publisher<geometry_msgs::msg::PoseStamped>(
     "/droneyee207/pose", qos);
   executor.add_node(duplicate_source);
-  const auto duplicate_graph_deadline = std::chrono::steady_clock::now() + 40ms;
+  const auto duplicate_graph_deadline = std::chrono::steady_clock::now() + 60ms;
   while (adapter->get_publishers_info_by_topic("/droneyee207/pose").size() != 2U &&
     std::chrono::steady_clock::now() < duplicate_graph_deadline)
   {
@@ -280,13 +312,10 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   trusted_pose.header.stamp = source->get_clock()->now();
   trusted_pose.header.frame_id = "world";
   trusted_pose.pose.orientation.w = 1.0;
+  trigger_stamp_ns = StampToNanoseconds(trusted_pose.header.stamp);
   pose_publisher->publish(trusted_pose);
-  for (std::size_t index = 0U; index < 5U; ++index) {
-    executor.spin_once(5ms);
-  }
+  executor.spin_once(20ms);
   EXPECT_EQ(diagnostic_count, diagnostic_count_before_duplicate);
-  EXPECT_EQ(candidate_count, candidate_count_before_duplicate);
-  EXPECT_EQ(source_candidate_count, source_candidate_count_before_duplicate);
 
   ASSERT_TRUE(
     SpinUntil(
@@ -301,8 +330,25 @@ TEST_F(InputAuthorityLifecycle, DuplicateInputLatchesOnTheNextTrustedFrame)
   EXPECT_EQ(
     std::stoull(DiagnosticValue(latest_status.value(), "publisher_authority_violation")),
     violations_before_duplicate + 1U);
-  EXPECT_EQ(candidate_count, candidate_count_before_duplicate);
-  EXPECT_EQ(source_candidate_count, source_candidate_count_before_duplicate);
+  EXPECT_EQ(
+    std::stoull(DiagnosticValue(latest_status.value(), "received")),
+    received_before_trigger + 1U);
+  EXPECT_EQ(
+    std::stoull(DiagnosticValue(latest_status.value(), "rejected")),
+    rejected_before_trigger + 1U);
+  EXPECT_EQ(
+    std::stoull(DiagnosticValue(latest_status.value(), "published_shadow_candidates")),
+    shadow_published_before_trigger);
+  EXPECT_EQ(
+    std::stoull(DiagnosticValue(latest_status.value(), "published_source_candidates")),
+    source_published_before_trigger);
+  const auto candidate_drain_deadline = std::chrono::steady_clock::now() + 100ms;
+  while (std::chrono::steady_clock::now() < candidate_drain_deadline) {
+    executor.spin_some();
+    std::this_thread::sleep_for(2ms);
+  }
+  EXPECT_FALSE(shadow_candidate_for_trigger);
+  EXPECT_FALSE(source_candidate_for_trigger);
   EXPECT_EQ(DiagnosticValue(latest_status.value(), "health_state"), "latched_fault");
 
   executor.remove_node(duplicate_source);

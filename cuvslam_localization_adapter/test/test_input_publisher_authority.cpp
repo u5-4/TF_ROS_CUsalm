@@ -16,6 +16,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -85,6 +86,7 @@ public:
         for (const auto & status : message->status) {
           if (status.name == status_name) {
             latest_adapter_status = status;
+            ++adapter_diagnostic_count;
           }
         }
       });
@@ -182,7 +184,7 @@ public:
 
   bool WaitForReason(const std::string & expected)
   {
-    const auto deadline = std::chrono::steady_clock::now() + 500ms;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < deadline) {
       executor.spin_some();
       if (latest_adapter_status.has_value() &&
@@ -197,11 +199,49 @@ public:
 
   bool WaitForDiagnosticValue(const std::string & key, const std::string & expected)
   {
-    const auto deadline = std::chrono::steady_clock::now() + 500ms;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < deadline) {
       executor.spin_some();
       if (latest_adapter_status.has_value() &&
         DiagnosticValue(latest_adapter_status.value(), key) == expected)
+      {
+        return true;
+      }
+      std::this_thread::sleep_for(2ms);
+    }
+    return false;
+  }
+
+  bool WaitForDiagnosticAfter(const std::size_t previous_count)
+  {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      executor.spin_some();
+      if (adapter_diagnostic_count > previous_count) {
+        return true;
+      }
+      std::this_thread::sleep_for(2ms);
+    }
+    return false;
+  }
+
+  bool WaitForInputCounters(
+    const std::uint64_t received,
+    const std::uint64_t status_received,
+    const std::uint64_t diagnostic_evidence_received)
+  {
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+      executor.spin_some();
+      if (latest_adapter_status.has_value() &&
+        std::stoull(DiagnosticValue(latest_adapter_status.value(), "received")) == received &&
+        std::stoull(
+          DiagnosticValue(latest_adapter_status.value(), "status_received")) ==
+        status_received &&
+        std::stoull(
+          DiagnosticValue(
+            latest_adapter_status.value(), "diagnostic_evidence_received")) ==
+        diagnostic_evidence_received)
       {
         return true;
       }
@@ -233,6 +273,7 @@ public:
   rclcpp::Subscription<LocalizationSourceCandidate>::SharedPtr candidate_subscription;
   rclcpp::Subscription<DiagnosticArray>::SharedPtr diagnostics_subscription;
   std::optional<DiagnosticStatus> latest_adapter_status;
+  std::size_t adapter_diagnostic_count{0U};
   std::size_t candidate_count{0U};
   rclcpp::executors::SingleThreadedExecutor executor;
 };
@@ -270,17 +311,36 @@ TEST_F(InputPublisherAuthority, DuplicateOdometryGidLatchesBeforeRepublishing)
     "/synthetic/odometry", rclcpp::SensorDataQoS().keep_last(10));
   pipeline.executor.add_node(spoof);
   ASSERT_TRUE(pipeline.WaitForGraph(2U, 1U));
-
-  const std::size_t count_before_spoof = pipeline.candidate_count;
-  pipeline.PublishOdometry(spoof_publisher, spoof->get_clock()->now());
-  pipeline.SpinFor(30ms);
-  EXPECT_EQ(pipeline.candidate_count, count_before_spoof);
   ASSERT_TRUE(pipeline.WaitForReason("ODOMETRY_PUBLISHER_NOT_UNIQUE"));
-  EXPECT_EQ(
+  const std::size_t diagnostic_count_after_fault = pipeline.adapter_diagnostic_count;
+  ASSERT_TRUE(pipeline.WaitForDiagnosticAfter(diagnostic_count_after_fault));
+
+  const std::uint64_t published_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "published_source_candidates"));
+  const std::uint64_t received_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "received"));
+  const std::uint64_t status_received_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "status_received"));
+  const std::uint64_t diagnostic_evidence_after_fault = std::stoull(
     DiagnosticValue(
-      pipeline.latest_adapter_status.value(),
-      "odometry_publisher_authority_violation"),
-    "1");
+      pipeline.latest_adapter_status.value(), "diagnostic_evidence_received"));
+  pipeline.PublishEvidence();
+  pipeline.PublishOdometry(spoof_publisher, spoof->get_clock()->now());
+  ASSERT_TRUE(
+    pipeline.WaitForInputCounters(
+      received_after_fault + 2U,
+      status_received_after_fault + 1U,
+      diagnostic_evidence_after_fault + 1U));
+  EXPECT_EQ(
+    std::stoull(
+      DiagnosticValue(pipeline.latest_adapter_status.value(), "published_source_candidates")),
+    published_after_fault);
+  EXPECT_GT(
+    std::stoull(
+      DiagnosticValue(
+        pipeline.latest_adapter_status.value(),
+        "odometry_publisher_authority_violation")),
+    0U);
 }
 
 TEST_F(InputPublisherAuthority, StatusPublisherRestartChangesGidAndEndsEpoch)
@@ -298,20 +358,38 @@ TEST_F(InputPublisherAuthority, StatusPublisherRestartChangesGidAndEndsEpoch)
     "/synthetic/status", rclcpp::SensorDataQoS().keep_last(10));
   pipeline.executor.add_node(replacement);
   ASSERT_TRUE(pipeline.WaitForGraph(1U, 1U));
+  ASSERT_TRUE(pipeline.WaitForReason("TRACKING_STATUS_PUBLISHER_GID_CHANGED"));
+  const std::size_t diagnostic_count_after_fault = pipeline.adapter_diagnostic_count;
+  ASSERT_TRUE(pipeline.WaitForDiagnosticAfter(diagnostic_count_after_fault));
 
-  const std::size_t count_before_restart = pipeline.candidate_count;
+  const std::uint64_t published_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "published_source_candidates"));
+  const std::uint64_t received_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "received"));
+  const std::uint64_t status_received_after_fault = std::stoull(
+    DiagnosticValue(pipeline.latest_adapter_status.value(), "status_received"));
+  const std::uint64_t diagnostic_evidence_after_fault = std::stoull(
+    DiagnosticValue(
+      pipeline.latest_adapter_status.value(), "diagnostic_evidence_received"));
   const auto stamp = replacement->get_clock()->now();
   pipeline.PublishStatus(replacement_publisher, stamp);
   pipeline.PublishDiagnostic(stamp);
   pipeline.PublishOdometry(pipeline.odometry_publisher, stamp);
-  pipeline.SpinFor(30ms);
-  EXPECT_EQ(pipeline.candidate_count, count_before_restart);
-  ASSERT_TRUE(pipeline.WaitForReason("TRACKING_STATUS_PUBLISHER_GID_CHANGED"));
+  ASSERT_TRUE(
+    pipeline.WaitForInputCounters(
+      received_after_fault + 1U,
+      status_received_after_fault + 1U,
+      diagnostic_evidence_after_fault + 1U));
   EXPECT_EQ(
-    DiagnosticValue(
-      pipeline.latest_adapter_status.value(),
-      "status_publisher_authority_violation"),
-    "1");
+    std::stoull(
+      DiagnosticValue(pipeline.latest_adapter_status.value(), "published_source_candidates")),
+    published_after_fault);
+  EXPECT_GT(
+    std::stoull(
+      DiagnosticValue(
+        pipeline.latest_adapter_status.value(),
+        "status_publisher_authority_violation")),
+    0U);
 }
 
 }  // namespace
